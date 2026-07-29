@@ -1,7 +1,7 @@
 import { makeProviders, makeStandardFetcher, targets } from "@movie-web/providers";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const TIMEOUT = 20000;
+const TIMEOUT = 8000;
 
 const providers = makeProviders({
   fetcher: makeStandardFetcher(async (url, init) => {

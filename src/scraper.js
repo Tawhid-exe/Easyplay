@@ -478,16 +478,18 @@ export async function debugSources({ type, imdbId, season, episode }) {
     ? `/embed/${imdbId}/${season}/${episode}/`
     : `/embed/movie/${imdbId}`;
 
-  probes: [
-    results[4].vidlinkProbe = await probeVidlink(imdbId, type, season, episode),
-    results[1].pageProbe = await probePage(`${SCRAPE_URL}${streamimdbPath}`, "streamimdb.ru"),
-    results[3].pageProbe = await probePage(
-      type === "series"
-        ? `https://multiembed.mov/directstream.php?video_id=${imdbId}&s=${season}&e=${episode}`
-        : `https://multiembed.mov/directstream.php?video_id=${imdbId}`,
-      "multiembed.mov"
-    ),
-  ];
+  const multiembedUrl = type === "series"
+    ? `https://multiembed.mov/directstream.php?video_id=${imdbId}&s=${season}&e=${episode}`
+    : `https://multiembed.mov/directstream.php?video_id=${imdbId}`;
+
+  const [vidlinkProbe, streamimdbProbe, multiembedProbe] = await Promise.all([
+    probeVidlink(imdbId, type, season, episode),
+    probePage(`${SCRAPE_URL}${streamimdbPath}`, "streamimdb.ru"),
+    probePage(multiembedUrl, "multiembed.mov"),
+  ]);
+  results[4].vidlinkProbe = vidlinkProbe;
+  results[1].pageProbe = streamimdbProbe;
+  results[3].pageProbe = multiembedProbe;
 
   return results;
 }
