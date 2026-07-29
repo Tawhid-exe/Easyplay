@@ -58,6 +58,15 @@ async function getVidApiSession(imdbId, type, season, episode) {
   }
 }
 
+function labelQuality(height) {
+  if (height >= 1080) return "1080p";
+  if (height >= 720) return "720p";
+  if (height >= 540) return "540p";
+  if (height >= 480) return "480p";
+  if (height >= 360) return "360p";
+  return "240p";
+}
+
 async function extractVariants(masterUrl, referer, cookie) {
   try {
     const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
@@ -82,7 +91,7 @@ async function extractVariants(masterUrl, referer, cookie) {
       for (let j = i + 1; j < lines.length; j++) {
         const urlLine = lines[j].trim();
         if (!urlLine || urlLine.startsWith("#")) continue;
-        variants.push({ proxyUrl: urlLine, quality: `${height}p`, height });
+        variants.push({ proxyUrl: urlLine, quality: labelQuality(height), height });
         break;
       }
     }
