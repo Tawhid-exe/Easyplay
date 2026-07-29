@@ -12,11 +12,6 @@ function buildHeaders(referer, cookie) {
   return h;
 }
 
-function isManifest(url) {
-  const path = new URL(url).pathname;
-  return path.endsWith(".m3u8") || path.includes("playlist") || path.includes("master");
-}
-
 async function fetchWithFallback(url, referer, cookie, range, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -67,7 +62,7 @@ function rewriteManifest(manifest, baseUrl, proxyOrigin, referer, cookie) {
       continue;
     }
 
-    const proxyUrl = new URL("/proxy/hls", proxyOrigin);
+    const proxyUrl = new URL("/proxy/hls/stream.m3u8", proxyOrigin);
     proxyUrl.searchParams.set("url", resolved);
     if (referer) proxyUrl.searchParams.set("referer", referer);
     if (cookie) proxyUrl.searchParams.set("cookie", cookie);

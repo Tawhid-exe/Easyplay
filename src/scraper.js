@@ -71,7 +71,7 @@ async function extractVariants(masterUrl, referer, cookie) {
   try {
     const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
     const encodedUrl = encodeURIComponent(masterUrl);
-    const proxyUrl = `${proxyOrigin}/proxy/hls?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
+    const proxyUrl = `${proxyOrigin}/proxy/hls/stream.m3u8?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
     const res = await fetch(proxyUrl, {
       headers: { "User-Agent": UA, Accept: "*/*" },
       redirect: "follow",
