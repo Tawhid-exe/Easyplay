@@ -58,10 +58,10 @@ async function getVidApiSession(imdbId, type, season, episode) {
   }
 }
 
-async function extractQuality(streamUrl, referer, cookie) {
+async function extractVariants(masterUrl, referer, cookie) {
   try {
     const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
-    const encodedUrl = encodeURIComponent(streamUrl);
+    const encodedUrl = encodeURIComponent(masterUrl);
     const proxyUrl = `${proxyOrigin}/proxy/hls?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
     const res = await fetch(proxyUrl, {
       headers: { "User-Agent": UA, Accept: "*/*" },
@@ -69,11 +69,27 @@ async function extractQuality(streamUrl, referer, cookie) {
     });
     if (!res.ok) return null;
     const text = await res.text();
-    const resolutions = [...text.matchAll(/#EXT-X-STREAM-INF:[^\n]*RESOLUTION=(\d+)x(\d+)/g)];
-    const heights = resolutions.map(r => parseInt(r[2], 10)).filter(h => !isNaN(h));
-    if (!heights.length) return null;
-    const maxH = Math.max(...heights);
-    return `${maxH}p`;
+    const lines = text.split("\n");
+    const variants = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.startsWith("#EXT-X-STREAM-INF:")) continue;
+      const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/);
+      if (!resolutionMatch) continue;
+      const height = parseInt(resolutionMatch[2], 10);
+      if (isNaN(height)) continue;
+      for (let j = i + 1; j < lines.length; j++) {
+        const urlLine = lines[j].trim();
+        if (!urlLine || urlLine.startsWith("#")) continue;
+        variants.push({ proxyUrl: urlLine, quality: `${height}p`, height });
+        break;
+      }
+    }
+
+    if (!variants.length) return null;
+    variants.sort((a, b) => b.height - a.height);
+    return variants;
   } catch {
     return null;
   }
@@ -104,18 +120,15 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
     const data = await res.json();
     if (data.status_code !== "200" || !data.data?.stream_urls?.length) return null;
 
-    const rawUrls = data.data.stream_urls;
     const referer = session?.playerUrl || "https://nextgencloudfabric.com/";
     const cookie = session?.sessionCookie || "";
+    const variants = await extractVariants(data.data.stream_urls[0], referer, cookie);
+    if (!variants) return null;
 
-    const qualities = await Promise.all(
-      rawUrls.map(u => extractQuality(u, referer, cookie))
-    );
-
-    return rawUrls.map((streamUrl, i) => ({
-      url: `/proxy/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`,
-      quality: qualities[i] || "Auto",
-      originalUrl: streamUrl,
+    return variants.map(v => ({
+      url: v.proxyUrl,
+      quality: v.quality,
+      originalUrl: "",
       referer,
       cookie,
     }));
