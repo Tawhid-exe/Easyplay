@@ -5,8 +5,9 @@ export async function onRequestGet(context) {
   try {
     const { type, id } = context.params;
     const cleanId = decodeURIComponent(String(id)).replace(/\.json$/, "");
-    const { streams } = await addonInterface.get("stream", type, cleanId);
     const origin = new URL(context.request.url).origin;
+    globalThis.__proxyOrigin = origin;
+    const { streams } = await addonInterface.get("stream", type, cleanId);
     const fixed = streams.map(s => ({
       ...s,
       url: s.url.startsWith("/") ? origin + s.url : s.url,

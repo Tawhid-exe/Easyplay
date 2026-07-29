@@ -58,6 +58,27 @@ async function getVidApiSession(imdbId, type, season, episode) {
   }
 }
 
+async function extractQuality(streamUrl, referer, cookie) {
+  try {
+    const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
+    const encodedUrl = encodeURIComponent(streamUrl);
+    const proxyUrl = `${proxyOrigin}/proxy/hls?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
+    const res = await fetch(proxyUrl, {
+      headers: { "User-Agent": UA, Accept: "*/*" },
+      redirect: "follow",
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const resolutions = [...text.matchAll(/#EXT-X-STREAM-INF:[^\n]*RESOLUTION=(\d+)x(\d+)/g)];
+    const heights = resolutions.map(r => parseInt(r[1], 10)).filter(h => !isNaN(h));
+    if (!heights.length) return null;
+    const maxH = Math.max(...heights);
+    return `${maxH}p`;
+  } catch {
+    return null;
+  }
+}
+
 async function tryVidApiDirect(imdbId, type, season, episode) {
   try {
     const session = await getVidApiSession(imdbId, type, season, episode);
@@ -83,12 +104,20 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
     const data = await res.json();
     if (data.status_code !== "200" || !data.data?.stream_urls?.length) return null;
 
-    return data.data.stream_urls.map((streamUrl, i) => ({
-      url: `/proxy/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(session?.playerUrl || "https://nextgencloudfabric.com/")}${session?.sessionCookie ? `&cookie=${encodeURIComponent(session.sessionCookie)}` : ""}`,
-      quality: "Auto",
+    const rawUrls = data.data.stream_urls;
+    const referer = session?.playerUrl || "https://nextgencloudfabric.com/";
+    const cookie = session?.sessionCookie || "";
+
+    const qualities = await Promise.all(
+      rawUrls.map(u => extractQuality(u, referer, cookie))
+    );
+
+    return rawUrls.map((streamUrl, i) => ({
+      url: `/proxy/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`,
+      quality: qualities[i] || "Auto",
       originalUrl: streamUrl,
-      referer: session?.playerUrl || "https://nextgencloudfabric.com/",
-      cookie: session?.sessionCookie || "",
+      referer,
+      cookie,
     }));
   } catch (err) {
     console.error(`[scraper] vidapi direct error:`, err.message);
