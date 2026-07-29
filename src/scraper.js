@@ -341,7 +341,9 @@ async function tryVidlink(imdbId, type, season, episode) {
   }
 }
 
-export async function scrapeStreams({ type, imdbId, season, episode }) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = 4000) {
   const sourceFunctions = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
     { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
@@ -353,15 +355,27 @@ export async function scrapeStreams({ type, imdbId, season, episode }) {
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
   ];
 
-  const results = await Promise.allSettled(sourceFunctions.map(sf => sf.fn()));
+  const settled = new Array(sourceFunctions.length).fill(null);
+  const promises = sourceFunctions.map((sf, i) =>
+    (async () => {
+      try {
+        const v = await sf.fn();
+        settled[i] = { status: "fulfilled", value: v };
+      } catch (e) {
+        settled[i] = { status: "rejected", reason: e };
+      }
+    })()
+  );
+
+  await Promise.race([Promise.all(promises), sleep(batchTimeout)]);
 
   const allStreams = [];
   const seenUrls = new Set();
 
   for (let i = 0; i < sourceFunctions.length; i++) {
     const sf = sourceFunctions[i];
-    const result = results[i];
-    if (result.status !== "fulfilled" || !result.value?.length) continue;
+    const result = settled[i];
+    if (!result || result.status !== "fulfilled" || !result.value?.length) continue;
     for (const s of result.value) {
       const key = s.url || s.originalUrl;
       if (!key || seenUrls.has(key)) continue;
