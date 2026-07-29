@@ -345,10 +345,18 @@ async function tryVidlink(imdbId, type, season, episode) {
     if (!res || !res.ok) return null;
 
     const data = await res.json();
-    const playlist = data?.stream?.playlist;
+    const streamData = data?.stream;
+    const playlist =
+      streamData?.playlist ||
+      streamData?.stream ||
+      streamData?.url ||
+      streamData?.sourceId ||
+      streamData?.playlistUrl ||
+      streamData?.hls ||
+      streamData?.manifest;
     if (!playlist) return null;
 
-    const captions = Array.isArray(data.stream.captions) ? data.stream.captions : undefined;
+    const captions = Array.isArray(streamData?.captions) ? streamData.captions : undefined;
 
     return [{
       url: playlist,
@@ -416,8 +424,18 @@ async function probeVidlink(imdbId, type, season, episode) {
   let data;
   try { data = await res.json(); } catch { data = null; }
   steps.vidlinkData = data ? { keys: Object.keys(data), hasStream: !!data?.stream } : { ok: false, error: "invalid json" };
-  const playlist = data?.stream?.playlist;
-  steps.playlist = playlist ? { ok: true } : { ok: false, error: "no stream.playlist" };
+  steps.streamObject = data?.stream;
+  if (data?.stream) {
+    const s = data.stream;
+    steps.streamFields = Object.keys(s);
+    steps.streamSample = {};
+    for (const k of Object.keys(s)) {
+      const v = s[k];
+      steps.streamSample[k] = typeof v === "string" ? v.slice(0, 120) : typeof v === "object" ? `[${v.constructor.name}]` : v;
+    }
+  }
+  const playlist = data?.stream?.playlist || data?.stream?.stream || data?.stream?.url || data?.stream?.sourceId;
+  steps.playlist = playlist ? { ok: true, foundIn: playlist === data?.stream?.playlist ? "playlist" : playlist === data?.stream?.stream ? "stream" : playlist === data?.stream?.url ? "url" : "sourceId", preview: (playlist || "").slice(0, 80) } : { ok: false, error: "no playable field found" };
   return { steps, decoded: encoded, playlist };
 }
 
@@ -490,6 +508,16 @@ export async function debugSources({ type, imdbId, season, episode }) {
   results[4].vidlinkProbe = vidlinkProbe;
   results[1].pageProbe = streamimdbProbe;
   results[3].pageProbe = multiembedProbe;
+
+  if (streamimdbProbe?.hasIframe && streamimdbProbe.htmlPreview) {
+    const iframeSrcMatch = streamimdbProbe.htmlPreview.match(/<iframe[^>]+src="([^"]+)"/);
+    if (iframeSrcMatch) {
+      let iframeUrl = iframeSrcMatch[1];
+      if (iframeUrl.startsWith("//")) iframeUrl = "https:" + iframeUrl;
+      if (iframeUrl.startsWith("/")) iframeUrl = "https://streamimdb.ru" + iframeUrl;
+      results[1].iframeProbe = await probePage(iframeUrl, "streamimdb.ru iframe");
+    }
+  }
 
   return results;
 }
