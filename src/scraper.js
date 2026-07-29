@@ -378,3 +378,42 @@ export async function scrapeStreams({ type, imdbId, season, episode }) {
 
   return allStreams;
 }
+
+export async function debugSources({ type, imdbId, season, episode }) {
+  const sourceFunctions = [
+    { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
+    { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
+    { name: "StreamIMDb.me", fn: () => tryStreamImdbMe(imdbId, type, season, episode) },
+    { name: "MultiEmbed", fn: () => tryMultiEmbed(imdbId, type, season, episode) },
+    { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
+    { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
+    { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
+  ];
+
+  const results = [];
+  for (const sf of sourceFunctions) {
+    const start = Date.now();
+    try {
+      const streams = await sf.fn();
+      results.push({
+        source: sf.name,
+        status: streams && streams.length ? "success" : "empty",
+        streamCount: streams ? streams.length : 0,
+        duration: Date.now() - start,
+        error: null,
+        sampleUrls: (streams || []).slice(0, 2).map(s => s.url?.slice(0, 150)),
+      });
+    } catch (err) {
+      results.push({
+        source: sf.name,
+        status: "error",
+        streamCount: 0,
+        duration: Date.now() - start,
+        error: err.message || String(err),
+        stack: (err.stack || "").split("\n").slice(0, 3).join(" | "),
+        sampleUrls: [],
+      });
+    }
+  }
+  return results;
+}
