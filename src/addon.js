@@ -3,6 +3,8 @@ import { ADDON_ID, ADDON_NAME, ADDON_DESCRIPTION, ADDON_VERSION } from "./config
 import { scrapeStreams } from "./scraper.js";
 
 const QUALITY_CONFIG = [
+  { key: "q_240", type: "bool", title: "240p", default: false },
+  { key: "q_360", type: "bool", title: "360p", default: false },
   { key: "q_480", type: "bool", title: "480p", default: true },
   { key: "q_720", type: "bool", title: "720p", default: true },
   { key: "q_1080", type: "bool", title: "1080p", default: true },
