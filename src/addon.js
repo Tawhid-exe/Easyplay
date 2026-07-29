@@ -16,7 +16,7 @@ const builder = new addonBuilder({
   version: ADDON_VERSION,
   name: ADDON_NAME,
   description: ADDON_DESCRIPTION,
-  resources: ["stream", "config"],
+  resources: ["stream"],
   types: ["movie", "series"],
   catalogs: [],
   idPrefixes: ["tt"],
@@ -43,8 +43,6 @@ function filterByQuality(streams, config) {
     return def ? def.default !== false : true;
   });
 }
-
-builder.defineConfigHandler(() => QUALITY_CONFIG);
 
 builder.defineStreamHandler(async ({ type, id, config }) => {
   try {
