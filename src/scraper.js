@@ -3,6 +3,20 @@ import { tryMovieWeb } from "./moview.js";
 import { try4KHDHub } from "./4khdhub.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+const FETCH_TIMEOUT = 10000;
+
+async function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch {
+    clearTimeout(id);
+    return null;
+  }
+}
 
 function headers(referer) {
   return {
@@ -19,11 +33,11 @@ function extractM3u8(text) {
 }
 
 async function fetchFollow(url, referer, cookie) {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: { ...headers(referer), ...(cookie ? { Cookie: cookie } : {}) },
     redirect: "follow",
   });
-  if (!res.ok) return null;
+  if (!res || !res.ok) return null;
   return {
     body: await res.text(),
     finalUrl: res.url,
@@ -38,11 +52,11 @@ async function getVidApiSession(imdbId, type, season, episode) {
       : `/embed/movie/${imdbId}`;
     const playerUrl = `https://nextgencloudfabric.com${path}`;
 
-    const res = await fetch(playerUrl, {
+    const res = await fetchWithTimeout(playerUrl, {
       headers: headers("https://streamimdb.ru/"),
       redirect: "follow",
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
 
     const html = await res.text();
     const playToken = html.match(/"playToken"\s*:\s*"([^"]+)"/);
@@ -74,11 +88,11 @@ async function extractVariants(masterUrl, referer, cookie) {
     const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
     const encodedUrl = encodeURIComponent(masterUrl);
     const proxyUrl = `${proxyOrigin}/proxy/hls/stream.m3u8?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
-    const res = await fetch(proxyUrl, {
+    const res = await fetchWithTimeout(proxyUrl, {
       headers: { "User-Agent": UA, Accept: "*/*" },
       redirect: "follow",
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const text = await res.text();
     const lines = text.split("\n");
     const variants = [];
@@ -118,7 +132,7 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
       url += `&playToken=${session.playToken}`;
     }
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: {
         "User-Agent": UA,
         Referer: session?.playerUrl || "https://nextgencloudfabric.com/",
@@ -126,7 +140,7 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
         ...(session?.sessionCookie ? { Cookie: session.sessionCookie } : {}),
       },
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
 
     const data = await res.json();
     if (data.status_code !== "200" || !data.data?.stream_urls?.length) return null;
@@ -255,11 +269,11 @@ async function tryMultiEmbed(imdbId, type, season, episode) {
     : `https://multiembed.mov/directstream.php?video_id=${imdbId}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: headers("https://multiembed.mov/"),
       redirect: "follow",
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
 
     const finalUrl = res.url;
     if (finalUrl.includes(".m3u8")) {
@@ -297,10 +311,10 @@ async function convertImdbToTmdb(imdbId) {
   const apiKey = globalThis.__tmdbApiKey;
   if (!apiKey) return null;
   try {
-    const res = await fetch(TMDB_FIND_URL(imdbId, apiKey), {
+    const res = await fetchWithTimeout(TMDB_FIND_URL(imdbId, apiKey), {
       headers: { "User-Agent": UA },
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const data = await res.json();
     return data?.movie_results?.[0] || data?.tv_results?.[0] || null;
   } catch {
@@ -313,10 +327,10 @@ async function tryVidlink(imdbId, type, season, episode) {
     const tmdb = await convertImdbToTmdb(imdbId);
     if (!tmdb) return null;
 
-    const encRes = await fetch(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, {
+    const encRes = await fetchWithTimeout(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, {
       headers: { "User-Agent": UA },
     });
-    if (!encRes.ok) return null;
+    if (!encRes || !encRes.ok) return null;
     const encData = await encRes.json();
     const encoded = encData?.result;
     if (!encoded) return null;
@@ -325,10 +339,10 @@ async function tryVidlink(imdbId, type, season, episode) {
       ? `${VIDLINK_BASE}/api/b/tv/${encoded}/${season}/${episode}?multiLang=0`
       : `${VIDLINK_BASE}/api/b/movie/${encoded}?multiLang=0`;
 
-    const res = await fetch(apiUrl, {
+    const res = await fetchWithTimeout(apiUrl, {
       headers: { "User-Agent": UA, Referer: VIDLINK_BASE },
     });
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
 
     const data = await res.json();
     const playlist = data?.stream?.playlist;

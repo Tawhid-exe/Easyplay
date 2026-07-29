@@ -1,6 +1,6 @@
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 const BASE_URLS = ["https://4khdhub.one", "https://4khdhub.fans"];
-const TIMEOUT = 15000;
+const TIMEOUT = 10000;
 
 function rot13(str) {
   return str.replace(/[a-zA-Z]/g, c => {
