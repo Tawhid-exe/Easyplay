@@ -16,7 +16,7 @@ const builder = new addonBuilder({
   version: ADDON_VERSION,
   name: ADDON_NAME,
   description: ADDON_DESCRIPTION,
-  resources: ["stream"],
+  resources: ["stream", "config"],
   types: ["movie", "series"],
   catalogs: [],
   idPrefixes: ["tt"],
@@ -31,14 +31,23 @@ function qualityNum(q) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+function isDisabled(val) {
+  return val === false || val === "false" || val === 0 || val === "0";
+}
+
+function isEnabled(val) {
+  return val === true || val === "true" || val === 1 || val === "1";
+}
+
 function filterByQuality(streams, config) {
   const qf = config || {};
   return streams.filter(s => {
     const n = qualityNum(s.quality);
     if (!n) return true;
     const key = `q_${n}`;
-    if (qf[key] === false) return false;
-    if (qf[key] === true) return true;
+    const val = qf[key];
+    if (isDisabled(val)) return false;
+    if (isEnabled(val)) return true;
     const def = QUALITY_CONFIG.find(c => c.key === key);
     return def ? def.default !== false : true;
   });
@@ -88,5 +97,7 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
     return { streams: [] };
   }
 });
+
+builder.handlers.config = (_, cb) => cb(null, QUALITY_CONFIG);
 
 export default builder.getInterface();

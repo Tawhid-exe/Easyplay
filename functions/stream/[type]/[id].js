@@ -10,14 +10,28 @@ function readQualityConfig(request) {
   return {};
 }
 
+const QUALITY_KEYS = ["q_240","q_360","q_480","q_720","q_1080","q_2160"];
+
+function readQueryConfig(url) {
+  const config = {};
+  for (const key of QUALITY_KEYS) {
+    const val = url.searchParams.get(key);
+    if (val !== null) config[key] = val;
+  }
+  return config;
+}
+
 export async function onRequestGet(context) {
   try {
     const { type, id } = context.params;
     const cleanId = decodeURIComponent(String(id)).replace(/\.json$/, "");
-    const origin = new URL(context.request.url).origin;
+    const url = new URL(context.request.url);
+    const origin = url.origin;
     globalThis.__proxyOrigin = origin;
     globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || "";
-    const config = readQualityConfig(context.request);
+    const cookieConfig = readQualityConfig(context.request);
+    const queryConfig = readQueryConfig(url);
+    const config = { ...cookieConfig, ...queryConfig };
     const { streams } = await addonInterface.get("stream", type, cleanId, { config });
     const fixed = streams.map(s => ({
       ...s,

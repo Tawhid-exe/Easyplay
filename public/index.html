@@ -54,21 +54,6 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
 
 <script>
 (function(){
-  var manifestUrl = window.location.origin + "/manifest.json";
-  document.getElementById("manifestUrl").textContent = manifestUrl;
-
-  var host = window.location.hostname === "127.0.0.1" ? "localhost" : window.location.hostname;
-  var port = window.location.port ? ":" + window.location.port : "";
-  document.getElementById("installLink").href = "stremio://" + host + port + "/manifest.json";
-
-  document.getElementById("copyBtn").addEventListener("click", function(){
-    navigator.clipboard.writeText(manifestUrl).then(function(){
-      var m = document.getElementById("copied-msg");
-      m.style.display = "inline";
-      setTimeout(function(){ m.style.display = "none"; }, 2000);
-    });
-  });
-
   var DEFAULTS = { q_240:false, q_360:false, q_480:true, q_720:true, q_1080:true, q_2160:true };
   var QUALITIES = [
     { key:"q_240", label:"240p" },
@@ -90,7 +75,43 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     document.cookie = c;
   }
 
+  function buildManifestUrl(config){
+    var base = window.location.origin + "/manifest.json";
+    var params = [];
+    for (var i = 0; i < QUALITIES.length; i++){
+      var k = QUALITIES[i].key;
+      var v = config[k];
+      if (v === undefined) v = DEFAULTS[k];
+      params.push(k + "=" + (v ? "true" : "false"));
+    }
+    return base + "?" + params.join("&");
+  }
+
+  function updateUrl(config){
+    var url = buildManifestUrl(config);
+    document.getElementById("manifestUrl").textContent = url;
+    var host = window.location.hostname === "127.0.0.1" ? "localhost" : window.location.hostname;
+    var port = window.location.port ? ":" + window.location.port : "";
+    var qIndex = url.indexOf("?");
+    var qs = qIndex !== -1 ? url.slice(qIndex) : "";
+    document.getElementById("installLink").href = "stremio://" + host + port + "/manifest.json" + qs;
+  }
+
   var config = readCookie();
+  for (var i = 0; i < QUALITIES.length; i++){
+    var k = QUALITIES[i].key;
+    if (config[k] === undefined) config[k] = DEFAULTS[k];
+  }
+  updateUrl(config);
+
+  document.getElementById("copyBtn").addEventListener("click", function(){
+    navigator.clipboard.writeText(buildManifestUrl(config)).then(function(){
+      var m = document.getElementById("copied-msg");
+      m.style.display = "inline";
+      setTimeout(function(){ m.style.display = "none"; }, 2000);
+    });
+  });
+
   var savedMsg = document.getElementById("saved-msg");
 
   QUALITIES.forEach(function(q){
@@ -101,6 +122,7 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     cb.addEventListener("change", function(){
       config[q.key] = cb.checked;
       saveCookie(config);
+      updateUrl(config);
       savedMsg.style.display = "block";
       setTimeout(function(){ savedMsg.style.display = "none"; }, 1500);
     });
