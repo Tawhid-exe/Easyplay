@@ -44,6 +44,8 @@ function filterByQuality(streams, config) {
   });
 }
 
+builder.defineConfigHandler(() => QUALITY_CONFIG);
+
 builder.defineStreamHandler(async ({ type, id, config }) => {
   try {
     const parts = id.split(":");
