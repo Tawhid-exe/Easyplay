@@ -70,7 +70,7 @@ async function extractQuality(streamUrl, referer, cookie) {
     if (!res.ok) return null;
     const text = await res.text();
     const resolutions = [...text.matchAll(/#EXT-X-STREAM-INF:[^\n]*RESOLUTION=(\d+)x(\d+)/g)];
-    const heights = resolutions.map(r => parseInt(r[1], 10)).filter(h => !isNaN(h));
+    const heights = resolutions.map(r => parseInt(r[2], 10)).filter(h => !isNaN(h));
     if (!heights.length) return null;
     const maxH = Math.max(...heights);
     return `${maxH}p`;

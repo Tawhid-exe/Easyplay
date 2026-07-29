@@ -17,24 +17,21 @@ function isManifest(url) {
   return path.endsWith(".m3u8") || path.includes("playlist") || path.includes("master");
 }
 
-async function fetchWithFallback(url, referer, cookie, retries = 2) {
+async function fetchWithFallback(url, referer, cookie, range, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(url, {
-        headers: buildHeaders(referer, cookie),
-        redirect: "follow",
-      });
+      const hdrs = buildHeaders(referer, cookie);
+      if (range) hdrs.Range = range;
+      const res = await fetch(url, { headers: hdrs, redirect: "follow" });
       if (res.ok || res.status === 206) return res;
       if (res.status === 403 || res.status === 429) {
-        // Retry with different headers
-        const altRes = await fetch(url, {
-          headers: {
-            "User-Agent": UA,
-            Referer: referer || "https://nextgencloudfabric.com/",
-            Origin: "https://nextgencloudfabric.com",
-          },
-          redirect: "follow",
-        });
+        const altHdrs = {
+          "User-Agent": UA,
+          Referer: referer || "https://nextgencloudfabric.com/",
+          Origin: "https://nextgencloudfabric.com",
+        };
+        if (range) altHdrs.Range = range;
+        const altRes = await fetch(url, { headers: altHdrs, redirect: "follow" });
         if (altRes.ok) return altRes;
       }
     } catch {}
@@ -87,12 +84,13 @@ export async function onRequestGet(context) {
   const targetUrl = parsed.searchParams.get("url");
   const referer = parsed.searchParams.get("referer") || "https://nextgencloudfabric.com/";
   const cookie = parsed.searchParams.get("cookie") || "";
+  const range = context.request.headers.get("range") || "";
 
   if (!targetUrl) {
     return new Response("Missing url parameter", { status: 400 });
   }
 
-  const res = await fetchWithFallback(targetUrl, referer, cookie);
+  const res = await fetchWithFallback(targetUrl, referer, cookie, range);
   if (!res) {
     return new Response("Failed to fetch stream", { status: 502 });
   }
@@ -114,18 +112,20 @@ export async function onRequestGet(context) {
   }
 
   const body = await res.arrayBuffer();
-  const headers = {
+  const respHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Content-Type": contentType || "application/octet-stream",
     "Cache-Control": "public, max-age=86400",
   };
 
   const contentRange = res.headers.get("content-range");
-  if (contentRange) headers["Content-Range"] = contentRange;
+  if (contentRange) respHeaders["Content-Range"] = contentRange;
+
+  const status = range && res.status === 206 ? 206 : (res.ok ? 200 : res.status);
 
   return new Response(body, {
-    status: res.status,
-    headers,
+    status,
+    headers: respHeaders,
   });
 }
 
