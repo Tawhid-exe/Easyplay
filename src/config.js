@@ -21,4 +21,5 @@ export const SOURCE_NAMES = {
   vidlink: "Vidlink",
   moview: "MovieWeb",
   fourkhdhub: "4KHDHub",
+  vixsrc: "VixSrc",
 };

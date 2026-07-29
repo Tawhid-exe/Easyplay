@@ -1,36 +1,10 @@
-import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, TMDB_FIND_URL } from "./config.js";
+import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL } from "./config.js";
 import { tryMovieWeb } from "./moview.js";
 import { try4KHDHub } from "./4khdhub.js";
+import { tryVixSrc } from "./vixsrc.js";
+import { fetchWithTimeout, headers, extractM3u8, convertImdbToTmdb } from "./utils.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const FETCH_TIMEOUT = 10000;
-
-async function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    return res;
-  } catch {
-    clearTimeout(id);
-    return null;
-  }
-}
-
-function headers(referer) {
-  return {
-    "User-Agent": UA,
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    Referer: referer || "https://nextgencloudfabric.com/",
-  };
-}
-
-function extractM3u8(text) {
-  const m = text.match(/https?:\/\/[^"'\s<>\\]+\.m3u8[^"'\s<>\\]*/);
-  return m ? m[0].replace(/\\/g, "") : null;
-}
 
 async function fetchFollow(url, referer, cookie) {
   const res = await fetchWithTimeout(url, {
@@ -307,21 +281,6 @@ async function tryMultiEmbed(imdbId, type, season, episode) {
   }
 }
 
-async function convertImdbToTmdb(imdbId) {
-  const apiKey = globalThis.__tmdbApiKey;
-  if (!apiKey) return null;
-  try {
-    const res = await fetchWithTimeout(TMDB_FIND_URL(imdbId, apiKey), {
-      headers: { "User-Agent": UA },
-    });
-    if (!res || !res.ok) return null;
-    const data = await res.json();
-    return data?.movie_results?.[0] || data?.tv_results?.[0] || null;
-  } catch {
-    return null;
-  }
-}
-
 async function tryVidlink(imdbId, type, season, episode) {
   try {
     const tmdb = await convertImdbToTmdb(imdbId);
@@ -391,6 +350,7 @@ export async function scrapeStreams({ type, imdbId, season, episode }) {
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
     { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
+    { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
   ];
 
   const results = await Promise.allSettled(sourceFunctions.map(sf => sf.fn()));
@@ -467,6 +427,40 @@ async function probePage(url, label) {
   };
 }
 
+async function probeVixsrc(imdbId, type, season, episode) {
+  const steps = {};
+  const tmdb = await convertImdbToTmdb(imdbId);
+  steps.tmdb = tmdb ? { ok: true, title: tmdb.title || tmdb.name, id: tmdb.id } : { ok: false, error: "tmdb lookup failed" };
+  if (!tmdb) return { steps, api: null, playerUrl: null };
+
+  const apiUrl = type === "series"
+    ? `https://vixsrc.to/api/tv/${tmdb.id}/${season}/${episode}`
+    : `https://vixsrc.to/api/movie/${tmdb.id}`;
+  const apiRes = await fetchWithTimeout(apiUrl, { headers: { "User-Agent": UA, Referer: "https://vixsrc.to/" } });
+  steps.api = apiRes ? { ok: true, status: apiRes.status, url: apiUrl } : { ok: false, error: "unreachable" };
+  if (!apiRes) return { steps, data: null, playerUrl: null };
+  let apiData;
+  try { apiData = await apiRes.json(); } catch { apiData = null; }
+  steps.apiData = apiData ? { keys: Object.keys(apiData), src: apiData.src } : { ok: false, error: "invalid json" };
+  if (!apiData?.src) return { steps, data: apiData, playerUrl: null };
+  const playerUrl = `https://vixsrc.to${apiData.src}`;
+  steps.playerUrl = playerUrl;
+  const playerRes = await fetchWithTimeout(playerUrl, { headers: { "User-Agent": UA, Referer: "https://vixsrc.to/" } });
+  steps.playerPage = playerRes ? { ok: true, status: playerRes.status } : { ok: false, error: "unreachable" };
+  if (!playerRes) return { steps, data: apiData, playerUrl };
+  const html = await playerRes.text();
+  const token = html.match(/['"]token['"]\s*:\s*['"](\w+)['"]/);
+  const expires = html.match(/['"]expires['"]\s*:\s*['"](\d+)['"]/);
+  const urlMatch = html.match(/masterPlaylist\s*=\s*\{[^}]*url:\s*['"]([^'"]+)['"]/);
+  steps.extracted = {
+    token: token ? token[1].slice(0, 20) + "..." : null,
+    expires: expires ? expires[1] : null,
+    url: urlMatch ? urlMatch[1].slice(0, 60) + "..." : null,
+    canPlayFHD: html.includes("canPlayFHD = true"),
+  };
+  return { steps, data: apiData, playerUrl };
+}
+
 export async function debugSources({ type, imdbId, season, episode }) {
   const sourceFunctions = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
@@ -476,6 +470,7 @@ export async function debugSources({ type, imdbId, season, episode }) {
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
     { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
+    { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
   ];
 
   const results = [];
@@ -512,14 +507,16 @@ export async function debugSources({ type, imdbId, season, episode }) {
     ? `https://multiembed.mov/directstream.php?video_id=${imdbId}&s=${season}&e=${episode}`
     : `https://multiembed.mov/directstream.php?video_id=${imdbId}`;
 
-  const [vidlinkProbe, streamimdbProbe, multiembedProbe] = await Promise.all([
+  const [vidlinkProbe, streamimdbProbe, multiembedProbe, vixsrcProbe] = await Promise.all([
     probeVidlink(imdbId, type, season, episode),
     probePage(`${SCRAPE_URL}${streamimdbPath}`, "streamimdb.ru"),
     probePage(multiembedUrl, "multiembed.mov"),
+    probeVixsrc(imdbId, type, season, episode),
   ]);
   results[4].vidlinkProbe = vidlinkProbe;
   results[1].pageProbe = streamimdbProbe;
   results[3].pageProbe = multiembedProbe;
+  results[7].vixsrcProbe = vixsrcProbe;
 
   if (streamimdbProbe?.hasIframe && streamimdbProbe.htmlPreview) {
     const iframeSrcMatch = streamimdbProbe.htmlPreview.match(/<iframe[^>]+src="([^"]+)"/);

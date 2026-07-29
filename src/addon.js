@@ -2,18 +2,47 @@ import addonBuilder from "stremio-addon-sdk/src/builder.js";
 import { ADDON_ID, ADDON_NAME, ADDON_DESCRIPTION, ADDON_VERSION } from "./config.js";
 import { scrapeStreams } from "./scraper.js";
 
+const QUALITY_CONFIG = [
+  { key: "q_480", type: "bool", title: "480p", default: true },
+  { key: "q_720", type: "bool", title: "720p", default: true },
+  { key: "q_1080", type: "bool", title: "1080p", default: true },
+  { key: "q_2160", type: "bool", title: "4K", default: true },
+];
+
 const builder = new addonBuilder({
   id: ADDON_ID,
   version: ADDON_VERSION,
   name: ADDON_NAME,
   description: ADDON_DESCRIPTION,
-  resources: ["stream"],
+  resources: ["stream", "config"],
   types: ["movie", "series"],
   catalogs: [],
   idPrefixes: ["tt"],
+  config: QUALITY_CONFIG,
 });
 
-builder.defineStreamHandler(async ({ type, id }) => {
+function qualityNum(q) {
+  if (!q || q === "Auto") return null;
+  const s = String(q);
+  if (/4k|2160/i.test(s)) return 2160;
+  const m = s.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function filterByQuality(streams, config) {
+  const qf = config || {};
+  return streams.filter(s => {
+    const n = qualityNum(s.quality);
+    if (!n) return true;
+    const key = `q_${n}`;
+    if (qf[key] === false) return false;
+    if (qf[key] === true) return true;
+    const def = QUALITY_CONFIG.find(c => c.key === key);
+    return def ? def.default !== false : true;
+  });
+}
+
+builder.defineStreamHandler(async ({ type, id, config }) => {
   try {
     const parts = id.split(":");
     const imdbId = parts[0];
@@ -27,7 +56,9 @@ builder.defineStreamHandler(async ({ type, id }) => {
       episode: episode ? Number(episode) : null,
     });
 
-    const streams = results.map((s, i) => {
+    const filtered = filterByQuality(results, config);
+
+    const streams = filtered.map((s, i) => {
       const label = season
         ? `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`
         : null;
