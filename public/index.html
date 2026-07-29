@@ -2,46 +2,113 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Easyplay — Stremio Addon</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #222; text-align: center; }
-  code { background: #f0f0f0; padding: 8px 12px; border-radius: 4px; font-size: 14px; word-break: break-all; display: inline-block; margin: 8px 0; }
-  .btn { display: inline-block; margin: 8px 4px; padding: 10px 18px; text-decoration: none; border-radius: 6px; border: none; cursor: pointer; font-size: 15px; }
-  .btn-primary { background: #6d38f2; color: white; }
-  .btn-secondary { background: #e0e0e0; color: #222; }
-  .btn-secondary:hover { background: #d0d0d0; }
-  .url-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-  #copied-msg { color: #2a9d2a; font-size: 13px; display: none; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0f0f0f;color:#eee;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}
+.card{background:#1a1a2e;border-radius:12px;padding:32px;width:100%;max-width:420px}
+h1{font-size:22px;color:#fff;margin-bottom:4px}
+.desc{font-size:13px;color:#888;margin-bottom:20px}
+.section-title{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#666;margin:20px 0 12px;padding-top:16px;border-top:1px solid #2a2a4a}
+code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-break:break-all;display:inline-block;margin:6px 0}
+.url-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+.btn{display:inline-block;padding:9px 16px;text-decoration:none;border-radius:6px;border:0;cursor:pointer;font-size:14px;font-family:inherit}
+.btn-primary{background:#4a6cf7;color:#fff}
+.btn-primary:hover{background:#5a7cf7}
+.btn-secondary{background:#2a2a4a;color:#ddd}
+.btn-secondary:hover{background:#3a3a5a}
+#copied-msg{color:#4ade80;font-size:13px;display:none}
+#saved-msg{color:#4ade80;font-size:13px;display:none;margin-top:8px}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.checks label{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:14px}
+.checks label:hover{background:#2a2a4a}
+.checks input{accent-color:#4a6cf7;width:16px;height:16px}
 </style>
 </head>
 <body>
+<div class="card">
   <h1>Easyplay</h1>
-  <p><strong>Step 1:</strong> Open Stremio → Addons (puzzle icon) → Addon search bar.</p>
-  <p><strong>Step 2:</strong> Copy this URL and paste it there:</p>
+  <p class="desc">Fetches streams from multiple sources with quality filtering</p>
+
+  <div class="section-title">Install</div>
+  <p style="font-size:13px;color:#999;margin-bottom:8px">
+    Open Stremio → Addons → paste this URL:
+  </p>
   <div class="url-row">
     <code id="manifestUrl">loading...</code>
     <button class="btn btn-secondary" id="copyBtn">Copy</button>
     <span id="copied-msg">Copied!</span>
   </div>
-  <p style="margin-top: 20px; color: #666;">
-    <small>Or try the auto-install button (may require Stremio desktop app):</small><br>
+  <p style="margin-top:12px">
     <a class="btn btn-primary" id="installLink" href="#">Install in Stremio</a>
   </p>
-  <script>
-    const manifestUrl = window.location.origin + "/manifest.json";
-    document.getElementById("manifestUrl").textContent = manifestUrl;
 
-    const host = window.location.hostname === "127.0.0.1" ? "localhost" : window.location.hostname;
-    const port = window.location.port ? ":" + window.location.port : "";
-    document.getElementById("installLink").href = "stremio://" + host + port + "/manifest.json";
+  <div class="section-title">Quality Settings</div>
+  <p style="font-size:13px;color:#999;margin-bottom:10px">
+    Choose which qualities appear in your stream list:
+  </p>
+  <div class="checks" id="qualityChecks"></div>
+  <div id="saved-msg">Saved!</div>
+</div>
 
-    document.getElementById("copyBtn").addEventListener("click", async () => {
-      await navigator.clipboard.writeText(manifestUrl);
-      const msg = document.getElementById("copied-msg");
-      msg.style.display = "inline";
-      setTimeout(() => { msg.style.display = "none"; }, 2000);
+<script>
+(function(){
+  var manifestUrl = window.location.origin + "/manifest.json";
+  document.getElementById("manifestUrl").textContent = manifestUrl;
+
+  var host = window.location.hostname === "127.0.0.1" ? "localhost" : window.location.hostname;
+  var port = window.location.port ? ":" + window.location.port : "";
+  document.getElementById("installLink").href = "stremio://" + host + port + "/manifest.json";
+
+  document.getElementById("copyBtn").addEventListener("click", function(){
+    navigator.clipboard.writeText(manifestUrl).then(function(){
+      var m = document.getElementById("copied-msg");
+      m.style.display = "inline";
+      setTimeout(function(){ m.style.display = "none"; }, 2000);
     });
-  </script>
+  });
+
+  var DEFAULTS = { q_240:false, q_360:false, q_480:true, q_720:true, q_1080:true, q_2160:true };
+  var QUALITIES = [
+    { key:"q_240", label:"240p" },
+    { key:"q_360", label:"360p" },
+    { key:"q_480", label:"480p" },
+    { key:"q_720", label:"720p" },
+    { key:"q_1080", label:"1080p" },
+    { key:"q_2160", label:"4K" },
+  ];
+
+  function readCookie(){
+    var m = document.cookie.match(/quality_config=([^;]+)/);
+    if (m) { try { return JSON.parse(decodeURIComponent(m[1])); } catch {} }
+    return {};
+  }
+
+  function saveCookie(config){
+    var c = "quality_config=" + encodeURIComponent(JSON.stringify(config)) + "; path=/; max-age=31536000; samesite=lax";
+    document.cookie = c;
+  }
+
+  var config = readCookie();
+  var savedMsg = document.getElementById("saved-msg");
+
+  QUALITIES.forEach(function(q){
+    var label = document.createElement("label");
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = config[q.key] !== false;
+    cb.addEventListener("change", function(){
+      config[q.key] = cb.checked;
+      saveCookie(config);
+      savedMsg.style.display = "block";
+      setTimeout(function(){ savedMsg.style.display = "none"; }, 1500);
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(q.label));
+    document.getElementById("qualityChecks").appendChild(label);
+  });
+})();
+</script>
 </body>
 </html>
