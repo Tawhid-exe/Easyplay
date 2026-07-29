@@ -1,3 +1,6 @@
 name = "stremio-scraper-addon"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "public"
+
+# TMDB_API_KEY - set via Cloudflare Dashboard > Environment Variables
+# For local dev: create a .env file with TMDB_API_KEY=your_key_here

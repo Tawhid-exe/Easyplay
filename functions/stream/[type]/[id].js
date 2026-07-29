@@ -7,6 +7,7 @@ export async function onRequestGet(context) {
     const cleanId = decodeURIComponent(String(id)).replace(/\.json$/, "");
     const origin = new URL(context.request.url).origin;
     globalThis.__proxyOrigin = origin;
+    globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || "";
     const { streams } = await addonInterface.get("stream", type, cleanId);
     const fixed = streams.map(s => ({
       ...s,

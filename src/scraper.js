@@ -1,4 +1,5 @@
-import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL } from "./config.js";
+import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, TMDB_FIND_URL } from "./config.js";
+import { tryMovieWeb } from "./moview.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
@@ -291,24 +292,87 @@ async function tryMultiEmbed(imdbId, type, season, episode) {
   }
 }
 
+async function convertImdbToTmdb(imdbId) {
+  const apiKey = globalThis.__tmdbApiKey;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(TMDB_FIND_URL(imdbId, apiKey), {
+      headers: { "User-Agent": UA },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.movie_results?.[0] || data?.tv_results?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function tryVidlink(imdbId, type, season, episode) {
+  try {
+    const tmdb = await convertImdbToTmdb(imdbId);
+    if (!tmdb) return null;
+
+    const encRes = await fetch(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, {
+      headers: { "User-Agent": UA },
+    });
+    if (!encRes.ok) return null;
+    const encData = await encRes.json();
+    const encoded = encData?.result;
+    if (!encoded) return null;
+
+    const apiUrl = type === "series"
+      ? `${VIDLINK_BASE}/api/b/tv/${encoded}/${season}/${episode}?multiLang=0`
+      : `${VIDLINK_BASE}/api/b/movie/${encoded}?multiLang=0`;
+
+    const res = await fetch(apiUrl, {
+      headers: { "User-Agent": UA, Referer: VIDLINK_BASE },
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const playlist = data?.stream?.playlist;
+    if (!playlist) return null;
+
+    const captions = Array.isArray(data.stream.captions) ? data.stream.captions : undefined;
+
+    return [{
+      url: playlist,
+      quality: "Auto",
+      referer: VIDLINK_BASE + "/",
+      ...(captions ? { captions } : {}),
+    }];
+  } catch (err) {
+    console.error(`[scraper] vidlink error:`, err.message);
+    return null;
+  }
+}
+
 export async function scrapeStreams({ type, imdbId, season, episode }) {
-  const sources = [
-    () => tryVidApiDirect(imdbId, type, season, episode),
-    () => tryStreamImdbEmbed(imdbId, type, season, episode),
-    () => tryStreamImdbMe(imdbId, type, season, episode),
-    () => tryMultiEmbed(imdbId, type, season, episode),
+  const sourceFunctions = [
+    { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
+    { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
+    { name: "StreamIMDb.me", fn: () => tryStreamImdbMe(imdbId, type, season, episode) },
+    { name: "MultiEmbed", fn: () => tryMultiEmbed(imdbId, type, season, episode) },
+    { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
+    { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
   ];
 
-  for (const trySource of sources) {
-    try {
-      const result = await trySource();
-      if (result && result.length > 0) {
-        return result;
-      }
-    } catch (err) {
-      console.error(`[scraper] source error:`, err.message);
+  const results = await Promise.allSettled(sourceFunctions.map(sf => sf.fn()));
+
+  const allStreams = [];
+  const seenUrls = new Set();
+
+  for (let i = 0; i < sourceFunctions.length; i++) {
+    const sf = sourceFunctions[i];
+    const result = results[i];
+    if (result.status !== "fulfilled" || !result.value?.length) continue;
+    for (const s of result.value) {
+      const key = s.url || s.originalUrl;
+      if (!key || seenUrls.has(key)) continue;
+      seenUrls.add(key);
+      allStreams.push({ ...s, source: sf.name });
     }
   }
 
-  return [];
+  return allStreams;
 }

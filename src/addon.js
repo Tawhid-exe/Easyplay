@@ -34,11 +34,14 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
       const isHls = s.url.includes(".m3u8") || s.originalUrl?.includes(".m3u8");
       const isProxy = s.url.includes("/proxy/hls");
+      const qual = s.quality || "Auto";
+      const src = s.source || "";
+      const title = label ? `${label} · ${qual} · ${src}` : `${qual} · ${src}`;
 
       return {
         url: s.url,
         name: ADDON_NAME,
-        title: label ? `${label} · ${s.quality || "Auto"}` : s.quality || "Auto",
+        title,
         behaviorHints: {
           notWebReady: isHls && !isProxy,
           bingeGroup: season ? `scraper-${imdbId}` : undefined,
