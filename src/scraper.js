@@ -343,7 +343,7 @@ async function tryVidlink(imdbId, type, season, episode) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = 4000) {
+export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = 1500) {
   const sourceFunctions = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
     { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
