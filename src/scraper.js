@@ -346,18 +346,30 @@ async function tryVidlink(imdbId, type, season, episode) {
 
     const data = await res.json();
     const streamData = data?.stream;
-    const playlist =
-      streamData?.playlist ||
-      streamData?.stream ||
-      streamData?.url ||
-      streamData?.sourceId ||
-      streamData?.playlistUrl ||
-      streamData?.hls ||
-      streamData?.manifest;
+    if (!streamData) return null;
+
+    if (streamData.qualities) {
+      const streams = [];
+      for (const [quality, info] of Object.entries(streamData.qualities)) {
+        if (!info?.url) continue;
+        streams.push({
+          url: info.url,
+          quality: quality + "p",
+          referer: VIDLINK_BASE + "/",
+          headers: info.headers || undefined,
+        });
+      }
+      if (streams.length) {
+        const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
+        if (captions) streams[0].captions = captions;
+        return streams;
+      }
+    }
+
+    const playlist = streamData.playlist || streamData.stream || streamData.url || streamData.sourceId;
     if (!playlist) return null;
 
-    const captions = Array.isArray(streamData?.captions) ? streamData.captions : undefined;
-
+    const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
     return [{
       url: playlist,
       quality: "Auto",
