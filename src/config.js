@@ -19,4 +19,6 @@ export const SOURCE_NAMES = {
   streamimdb_me: "StreamIMDb.me",
   multiembed: "MultiEmbed",
   vidlink: "Vidlink",
+  moview: "MovieWeb",
+  fourkhdhub: "4KHDHub",
 };

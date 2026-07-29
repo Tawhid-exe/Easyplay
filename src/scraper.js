@@ -1,5 +1,6 @@
 import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, TMDB_FIND_URL } from "./config.js";
 import { tryMovieWeb } from "./moview.js";
+import { try4KHDHub } from "./4khdhub.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
@@ -355,6 +356,7 @@ export async function scrapeStreams({ type, imdbId, season, episode }) {
     { name: "MultiEmbed", fn: () => tryMultiEmbed(imdbId, type, season, episode) },
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
+    { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
   ];
 
   const results = await Promise.allSettled(sourceFunctions.map(sf => sf.fn()));
