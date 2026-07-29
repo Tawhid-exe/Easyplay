@@ -98,6 +98,6 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
   }
 });
 
-builder.handlers.config = (_, cb) => cb(null, QUALITY_CONFIG);
+builder.defineResourceHandler('config', () => QUALITY_CONFIG);
 
 export default builder.getInterface();

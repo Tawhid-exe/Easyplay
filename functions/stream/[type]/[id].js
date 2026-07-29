@@ -32,7 +32,7 @@ export async function onRequestGet(context) {
     const cookieConfig = readQualityConfig(context.request);
     const queryConfig = readQueryConfig(url);
     const config = { ...cookieConfig, ...queryConfig };
-    const { streams } = await addonInterface.get("stream", type, cleanId, { config });
+    const { streams } = await addonInterface.get("stream", type, cleanId, {}, config);
     const fixed = streams.map(s => ({
       ...s,
       url: s.url.startsWith("/") ? origin + s.url : s.url,
