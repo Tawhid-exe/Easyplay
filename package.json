@@ -1,0 +1,19 @@
+{
+  "name": "stremio-scraper-addon",
+  "version": "3.0.0",
+  "description": "Stremio addon that fetches streams via VidAPI direct API, deployed on Cloudflare Pages",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "start": "node server.mjs",
+    "launch": "node server.mjs --launch",
+    "deploy": "wrangler pages deploy public"
+  },
+  "dependencies": {
+    "stremio-addon-sdk": "^1.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

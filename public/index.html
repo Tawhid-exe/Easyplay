@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Custom Scraper — Stremio Addon</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #222; text-align: center; }
+  code { background: #f0f0f0; padding: 8px 12px; border-radius: 4px; font-size: 14px; word-break: break-all; display: inline-block; margin: 8px 0; }
+  .btn { display: inline-block; margin: 8px 4px; padding: 10px 18px; text-decoration: none; border-radius: 6px; border: none; cursor: pointer; font-size: 15px; }
+  .btn-primary { background: #6d38f2; color: white; }
+  .btn-secondary { background: #e0e0e0; color: #222; }
+  .btn-secondary:hover { background: #d0d0d0; }
+  .url-row { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+  #copied-msg { color: #2a9d2a; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+  <h1>Custom Scraper Addon</h1>
+  <p><strong>Step 1:</strong> Open Stremio → Addons (puzzle icon) → Addon search bar.</p>
+  <p><strong>Step 2:</strong> Copy this URL and paste it there:</p>
+  <div class="url-row">
+    <code id="manifestUrl">loading...</code>
+    <button class="btn btn-secondary" id="copyBtn">Copy</button>
+    <span id="copied-msg">Copied!</span>
+  </div>
+  <p style="margin-top: 20px; color: #666;">
+    <small>Or try the auto-install button (may require Stremio desktop app):</small><br>
+    <a class="btn btn-primary" id="installLink" href="#">Install in Stremio</a>
+  </p>
+  <script>
+    const manifestUrl = window.location.origin + "/manifest.json";
+    document.getElementById("manifestUrl").textContent = manifestUrl;
+
+    const host = window.location.hostname === "127.0.0.1" ? "localhost" : window.location.hostname;
+    const port = window.location.port ? ":" + window.location.port : "";
+    document.getElementById("installLink").href = "stremio://" + host + port + "/manifest.json";
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(manifestUrl);
+      const msg = document.getElementById("copied-msg");
+      msg.style.display = "inline";
+      setTimeout(() => { msg.style.display = "none"; }, 2000);
+    });
+  </script>
+</body>
+</html>
