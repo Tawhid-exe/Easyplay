@@ -1,5 +1,9 @@
 export const STREAMDATA_API_URL = "https://streamdata.vaplayer.ru/api.php";
 
+// VidAPI backend is defunct (streamdata.vaplayer.ru 404, nextgencloudfabric.com 404).
+// Set to true if a successor backend surfaces; otherwise skip to avoid burning the batch budget.
+export const VIDAPI_ENABLED = false;
+
 export const TMDB_API_KEY = (typeof process !== "undefined" && process.env && process.env.TMDB_API_KEY) || "1b7f3baba19e266ea22cc48ac0b3b40c";
 
 export const FETCH_TIMEOUT = 10000;

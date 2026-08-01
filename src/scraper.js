@@ -1,4 +1,4 @@
-import { STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, BATCH_TIMEOUT } from "./config.js";
+import { STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, BATCH_TIMEOUT, VIDAPI_ENABLED } from "./config.js";
 import { tryVixSrc } from "./vixsrc.js";
 import { fetchWithTimeout, chromeHeaders, fetchWithRetry, headers, convertImdbToTmdb, sleep } from "./utils.js";
 import { collectCookies, cookieString } from "./cookies.js";
@@ -80,6 +80,7 @@ async function extractVariants(masterUrl, referer, cookie) {
 }
 
 async function tryVidApiDirect(imdbId, type, season, episode) {
+  if (!VIDAPI_ENABLED) return null;
   try {
     const session = await getVidApiSession(imdbId, type, season, episode);
 
