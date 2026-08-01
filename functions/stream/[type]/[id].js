@@ -1,5 +1,6 @@
 import { jsonResponse, handleOptions } from "../../../src/cors.js";
 import addonInterface from "../../../src/addon.js";
+import { TMDB_API_KEY } from "../../../src/config.js";
 
 function readQualityConfig(request) {
   const cookie = request.headers.get("Cookie") || "";
@@ -28,7 +29,7 @@ export async function onRequestGet(context) {
     const url = new URL(context.request.url);
     const origin = url.origin;
     globalThis.__proxyOrigin = origin;
-    globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || "";
+    globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || TMDB_API_KEY;
     const cookieConfig = readQualityConfig(context.request);
     const queryConfig = readQueryConfig(url);
     const config = { ...cookieConfig, ...queryConfig };

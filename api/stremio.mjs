@@ -1,9 +1,10 @@
 import addonInterface from "../src/addon.js";
 import { debugSources } from "../src/scraper.js";
+import { TMDB_API_KEY } from "../src/config.js";
 
 export default async function handler(req, res) {
   globalThis.__proxyOrigin = `https://${req.headers.host}`;
-  globalThis.__tmdbApiKey = process.env.TMDB_API_KEY || "";
+  globalThis.__tmdbApiKey = process.env.TMDB_API_KEY || TMDB_API_KEY;
 
   const url = new URL(req.url, `https://${req.headers.host}`);
   const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -18,12 +19,13 @@ export default async function handler(req, res) {
       const season = idParts[1] || null;
       const episode = idParts[2] || null;
       const results = await debugSources({ type, imdbId, season: season ? Number(season) : null, episode: episode ? Number(episode) : null });
+      const resolvedKey = globalThis.__tmdbApiKey;
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Access-Control-Allow-Origin", "*");
       return res.status(200).json({
         ok: true,
-        tmdbApiKeySet: !!process.env.TMDB_API_KEY,
-        tmdbApiKeyPrefix: process.env.TMDB_API_KEY ? process.env.TMDB_API_KEY.slice(0, 8) + "..." : null,
+        tmdbApiKeySet: !!resolvedKey,
+        tmdbApiKeyPrefix: resolvedKey ? resolvedKey.slice(0, 8) + "..." : null,
         params: { type, imdbId, season, episode },
         summary: {
           total: results.length,

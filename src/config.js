@@ -1,6 +1,10 @@
-export const SCRAPE_URL = "https://streamimdb.ru";
-export const SCRAPE_ALT_URL = "https://streamimdb.me";
 export const STREAMDATA_API_URL = "https://streamdata.vaplayer.ru/api.php";
+
+export const TMDB_API_KEY = (typeof process !== "undefined" && process.env && process.env.TMDB_API_KEY) || "1b7f3baba19e266ea22cc48ac0b3b40c";
+
+export const FETCH_TIMEOUT = 10000;
+export const RETRY_ATTEMPTS = 3;
+export const BATCH_TIMEOUT = 4500;
 
 export const VIDLINK_BASE = "https://vidlink.pro";
 export const ENC_VIDLINK_URL = "https://enc-dec.app/api/enc-vidlink";
@@ -15,11 +19,6 @@ export const ADDON_VERSION = "1.0.0";
 
 export const SOURCE_NAMES = {
   vidapi: "VidAPI",
-  streamimdb_ru: "StreamIMDb",
-  streamimdb_me: "StreamIMDb.me",
-  multiembed: "MultiEmbed",
   vidlink: "Vidlink",
-  moview: "MovieWeb",
-  fourkhdhub: "4KHDHub",
   vixsrc: "VixSrc",
 };

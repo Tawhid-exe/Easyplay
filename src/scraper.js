@@ -1,23 +1,9 @@
-import { SCRAPE_URL, SCRAPE_ALT_URL, STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL } from "./config.js";
-import { tryMovieWeb } from "./moview.js";
-import { try4KHDHub } from "./4khdhub.js";
+import { STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, BATCH_TIMEOUT } from "./config.js";
 import { tryVixSrc } from "./vixsrc.js";
-import { fetchWithTimeout, headers, extractM3u8, convertImdbToTmdb } from "./utils.js";
+import { fetchWithTimeout, chromeHeaders, fetchWithRetry, headers, convertImdbToTmdb, sleep } from "./utils.js";
+import { collectCookies, cookieString } from "./cookies.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-
-async function fetchFollow(url, referer, cookie) {
-  const res = await fetchWithTimeout(url, {
-    headers: { ...headers(referer), ...(cookie ? { Cookie: cookie } : {}) },
-    redirect: "follow",
-  });
-  if (!res || !res.ok) return null;
-  return {
-    body: await res.text(),
-    finalUrl: res.url,
-    cookie: res.headers.get("set-cookie") || cookie || "",
-  };
-}
 
 async function getVidApiSession(imdbId, type, season, episode) {
   try {
@@ -26,21 +12,20 @@ async function getVidApiSession(imdbId, type, season, episode) {
       : `/embed/movie/${imdbId}`;
     const playerUrl = `https://nextgencloudfabric.com${path}`;
 
-    const res = await fetchWithTimeout(playerUrl, {
+    const res = await fetchWithRetry(playerUrl, {
       headers: headers("https://streamimdb.ru/"),
       redirect: "follow",
-    });
+    }, { attempts: 2, baseDelay: 250, maxDelay: 800 });
     if (!res || !res.ok) return null;
 
     const html = await res.text();
     const playToken = html.match(/"playToken"\s*:\s*"([^"]+)"/);
-    const sessionCookie = res.headers.get("set-cookie") || "";
 
     if (!playToken) return null;
 
     return {
       playToken: playToken[1],
-      sessionCookie,
+      cookies: collectCookies(res),
       playerUrl,
     };
   } catch {
@@ -62,10 +47,10 @@ async function extractVariants(masterUrl, referer, cookie) {
     const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
     const encodedUrl = encodeURIComponent(masterUrl);
     const proxyUrl = `${proxyOrigin}/proxy/hls/stream.m3u8?url=${encodedUrl}&referer=${encodeURIComponent(referer)}${cookie ? `&cookie=${encodeURIComponent(cookie)}` : ""}`;
-    const res = await fetchWithTimeout(proxyUrl, {
-      headers: { "User-Agent": UA, Accept: "*/*" },
+    const res = await fetchWithRetry(proxyUrl, {
+      headers: { "user-agent": UA, accept: "*/*" },
       redirect: "follow",
-    });
+    }, { attempts: 2, baseDelay: 200, maxDelay: 600 });
     if (!res || !res.ok) return null;
     const text = await res.text();
     const lines = text.split("\n");
@@ -106,22 +91,22 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
       url += `&playToken=${session.playToken}`;
     }
 
-    const res = await fetchWithTimeout(url, {
+    const cookieHeader = session?.cookies ? cookieString(session.cookies) : "";
+    const playerUrl = session?.playerUrl || "https://nextgencloudfabric.com/";
+
+    const res = await fetchWithRetry(url, {
       headers: {
-        "User-Agent": UA,
-        Referer: session?.playerUrl || "https://nextgencloudfabric.com/",
-        Origin: "https://nextgencloudfabric.com",
-        ...(session?.sessionCookie ? { Cookie: session.sessionCookie } : {}),
+        ...chromeHeaders({ referer: playerUrl, origin: "https://nextgencloudfabric.com", mode: "api" }),
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
       },
-    });
+    }, { attempts: 2, baseDelay: 250, maxDelay: 800 });
     if (!res || !res.ok) return null;
 
     const data = await res.json();
     if (data.status_code !== "200" || !data.data?.stream_urls?.length) return null;
 
-    const referer = session?.playerUrl || "https://nextgencloudfabric.com/";
-    const cookie = session?.sessionCookie || "";
-    const variants = await extractVariants(data.data.stream_urls[0], referer, cookie);
+    const referer = playerUrl;
+    const variants = await extractVariants(data.data.stream_urls[0], referer, cookieHeader);
     if (!variants) return null;
 
     return variants.map(v => ({
@@ -129,7 +114,7 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
       quality: v.quality,
       originalUrl: "",
       referer,
-      cookie,
+      cookie: cookieHeader,
     }));
   } catch (err) {
     console.error(`[scraper] vidapi direct error:`, err.message);
@@ -137,169 +122,82 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
   }
 }
 
-async function tryStreamImdbEmbed(imdbId, type, season, episode) {
-  const path = type === "series"
-    ? `/embed/${imdbId}/${season}/${episode}/`
-    : `/embed/movie/${imdbId}`;
-  const embedUrl = `${SCRAPE_URL}${path}`;
+const vidlinkStreamCache = new Map();
+const vidlinkEncCache = new Map();
+const VIDLINK_STREAM_TTL = 5 * 60 * 1000;
+const VIDLINK_ENC_TTL = 24 * 60 * 60 * 1000;
 
-  try {
-    const result = await fetchFollow(embedUrl, "https://streamimdb.ru/");
-    if (!result) return null;
-
-    const iframeMatch = result.body.match(/<iframe[^>]+src="([^"]+)"/);
-    if (!iframeMatch) {
-      const m3u8 = extractM3u8(result.body);
-      if (m3u8) return [{ url: m3u8, quality: "Auto" }];
-      return null;
-    }
-
-    let iframeSrc = iframeMatch[1];
-    if (iframeSrc.startsWith("//")) iframeSrc = "https:" + iframeSrc;
-
-    const player = await fetchFollow(iframeSrc, embedUrl, result.cookie);
-    if (!player) return null;
-
-    const streams = [];
-    const m3u8 = extractM3u8(player.body);
-    if (m3u8) streams.push({ url: m3u8, quality: "Auto", referer: iframeSrc });
-
-    const sourcesMatch = player.body.match(/"sources"\s*:\s*(\[[\s\S]*?\])\s*[;}]/);
-    if (sourcesMatch) {
-      try {
-        const sources = JSON.parse(sourcesMatch[1]);
-        for (const s of sources) {
-          const url = s.file || s.src || s.url;
-          if (!url) continue;
-          const label = s.label || s.type || "Auto";
-          if (url.includes(".m3u8") || url.includes(".mp4") || url.includes(".mkv")) {
-            streams.push({ url, quality: label, referer: iframeSrc });
-          }
-        }
-      } catch {}
-    }
-
-    if (streams.length) return streams;
-    return null;
-  } catch (err) {
-    console.error(`[scraper] streamimdb.ru error:`, err.message);
+function cacheGet(map, key) {
+  const hit = map.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > hit.ttl) {
+    map.delete(key);
     return null;
   }
+  return hit.value;
 }
 
-async function tryStreamImdbMe(imdbId, type, season, episode) {
-  const path = type === "series"
-    ? `/embed/${imdbId}/${season}/${episode}/`
-    : `/embed/${imdbId}/`;
-  const embedUrl = `${SCRAPE_ALT_URL}${path}`;
-
-  try {
-    const result = await fetchFollow(embedUrl, "https://streamimdb.me/");
-    if (!result) return null;
-
-    const iframeMatch = result.body.match(/id="player_iframe"[^>]+src="([^"]+)"/);
-    if (!iframeMatch) {
-      const m3u8 = extractM3u8(result.body);
-      if (m3u8) return [{ url: m3u8, quality: "Auto" }];
-      return null;
-    }
-
-    let iframeSrc = iframeMatch[1];
-    if (iframeSrc.startsWith("//")) iframeSrc = "https:" + iframeSrc;
-
-    const player = await fetchFollow(iframeSrc, embedUrl, result.cookie);
-    if (!player) return null;
-
-    const streams = [];
-    const m3u8 = extractM3u8(player.body);
-    if (m3u8) streams.push({ url: m3u8, quality: "Auto", referer: iframeSrc });
-
-    const sourcesMatch = player.body.match(/"sources"\s*:\s*(\[[\s\S]*?\])\s*[;}]/);
-    if (sourcesMatch) {
-      try {
-        const sources = JSON.parse(sourcesMatch[1]);
-        for (const s of sources) {
-          const url = s.file || s.src || s.url;
-          if (!url) continue;
-          const label = s.label || s.type || "Auto";
-          if (url.includes(".m3u8") || url.includes(".mp4") || url.includes(".mkv")) {
-            streams.push({ url, quality: label, referer: iframeSrc });
-          }
-        }
-      } catch {}
-    }
-
-    if (streams.length) return streams;
-    return null;
-  } catch (err) {
-    console.error(`[scraper] streamimdb.me error:`, err.message);
-    return null;
+function cacheSet(map, key, value, ttl) {
+  if (map.size >= 400) {
+    const oldest = map.keys().next().value;
+    if (oldest) map.delete(oldest);
   }
+  map.set(key, { ts: Date.now(), ttl, value });
 }
 
-async function tryMultiEmbed(imdbId, type, season, episode) {
-  const url = type === "series"
-    ? `https://multiembed.mov/directstream.php?video_id=${imdbId}&s=${season}&e=${episode}`
-    : `https://multiembed.mov/directstream.php?video_id=${imdbId}`;
+function buildProxyUrl(targetUrl, referer, cookie) {
+  const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
+  const proxyUrl = new URL("/proxy/hls/stream.m3u8", proxyOrigin);
+  proxyUrl.searchParams.set("url", targetUrl);
+  if (referer) proxyUrl.searchParams.set("referer", referer);
+  if (cookie) proxyUrl.searchParams.set("cookie", cookie);
+  return proxyUrl.href;
+}
 
-  try {
-    const res = await fetchWithTimeout(url, {
-      headers: headers("https://multiembed.mov/"),
-      redirect: "follow",
-    });
-    if (!res || !res.ok) return null;
+async function getVidlinkEncodedId(tmdbId) {
+  const key = String(tmdbId);
+  const cached = cacheGet(vidlinkEncCache, key);
+  if (cached) return cached;
+  const encRes = await fetchWithRetry(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(key)}`, {
+    headers: chromeHeaders({ mode: "api" }),
+  });
+  if (!encRes || !encRes.ok) return null;
+  const encData = await encRes.json();
+  const encoded = encData?.result;
+  if (!encoded) return null;
+  cacheSet(vidlinkEncCache, key, encoded, VIDLINK_ENC_TTL);
+  return encoded;
+}
 
-    const finalUrl = res.url;
-    if (finalUrl.includes(".m3u8")) {
-      return [{ url: finalUrl, quality: "Auto", referer: "https://multiembed.mov/" }];
-    }
-
-    const body = await res.text();
-    const m3u8 = extractM3u8(body);
-    if (m3u8) return [{ url: m3u8, quality: "Auto", referer: "https://multiembed.mov/" }];
-
-    const sourcesMatch = body.match(/"sources"\s*:\s*(\[[\s\S]*?])/);
-    if (sourcesMatch) {
-      try {
-        const sources = JSON.parse(sourcesMatch[1]);
-        const valid = sources.filter(s => {
-          const url = s.file || s.src || s.url;
-          return url && (url.includes(".m3u8") || url.includes(".mp4"));
-        }).map(s => ({
-          url: s.file || s.src || s.url,
-          quality: s.label || s.type || "Auto",
-          referer: "https://multiembed.mov/",
-        }));
-        if (valid.length) return valid;
-      } catch {}
-    }
-
-    return null;
-  } catch (err) {
-    console.error(`[scraper] multiembed error:`, err.message);
-    return null;
-  }
+async function probeStreamUrl(url, referer) {
+  const res = await fetchWithTimeout(url, {
+    headers: {
+      ...chromeHeaders({ referer, mode: "api" }),
+      range: "bytes=0-0",
+    },
+  }, 4000);
+  if (!res) return false;
+  return res.status === 200 || res.status === 206 || res.status === 304;
 }
 
 async function tryVidlink(imdbId, type, season, episode) {
+  const cacheKey = `${type}:${imdbId}:${season ?? ""}:${episode ?? ""}`;
+  const cached = cacheGet(vidlinkStreamCache, cacheKey);
+  if (cached) return cached;
+
   try {
     const tmdb = await convertImdbToTmdb(imdbId);
     if (!tmdb) return null;
 
-    const encRes = await fetchWithTimeout(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, {
-      headers: { "User-Agent": UA },
-    });
-    if (!encRes || !encRes.ok) return null;
-    const encData = await encRes.json();
-    const encoded = encData?.result;
+    const encoded = await getVidlinkEncodedId(tmdb.id);
     if (!encoded) return null;
 
     const apiUrl = type === "series"
       ? `${VIDLINK_BASE}/api/b/tv/${encoded}/${season}/${episode}?multiLang=0`
       : `${VIDLINK_BASE}/api/b/movie/${encoded}?multiLang=0`;
 
-    const res = await fetchWithTimeout(apiUrl, {
-      headers: { "User-Agent": UA, Referer: VIDLINK_BASE },
+    const res = await fetchWithRetry(apiUrl, {
+      headers: chromeHeaders({ referer: VIDLINK_BASE, origin: VIDLINK_BASE, mode: "api", site: "same-origin" }),
     });
     if (!res || !res.ok) return null;
 
@@ -307,51 +205,59 @@ async function tryVidlink(imdbId, type, season, episode) {
     const streamData = data?.stream;
     if (!streamData) return null;
 
+    const corsAllowed = Array.isArray(streamData.flags) && streamData.flags.includes("cors-allowed");
+    const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
+
+    let streams = null;
+
     if (streamData.qualities) {
-      const streams = [];
+      const entries = [];
       for (const [quality, info] of Object.entries(streamData.qualities)) {
         if (!info?.url) continue;
-        streams.push({
-          url: info.url,
+        const headerObj = info.headers && Object.keys(info.headers).length ? info.headers : null;
+        entries.push({
           quality: quality + "p",
-          referer: VIDLINK_BASE + "/",
-          headers: info.headers || undefined,
+          url: info.url,
+          needsProxy: (info.requiresProxy === true && !corsAllowed) || !!headerObj,
+          headerObj,
         });
       }
-      if (streams.length) {
-        const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
-        if (captions) streams[0].captions = captions;
-        return streams;
+      if (entries.length) {
+        const probes = await Promise.all(entries.map(e => probeStreamUrl(e.url, VIDLINK_BASE + "/")));
+        const passing = entries.filter((_, i) => probes[i]);
+        const chosen = passing.length ? passing : entries;
+        streams = chosen.map(e => ({
+          url: e.needsProxy ? buildProxyUrl(e.url, VIDLINK_BASE + "/") : e.url,
+          quality: e.quality,
+          referer: VIDLINK_BASE + "/",
+          ...(e.headerObj && !e.needsProxy ? { headers: e.headerObj } : {}),
+        }));
+      }
+    } else {
+      const playlist = streamData.playlist || streamData.stream || streamData.url || streamData.sourceId;
+      if (playlist) {
+        streams = [{ url: playlist, quality: "Auto", referer: VIDLINK_BASE + "/" }];
       }
     }
 
-    const playlist = streamData.playlist || streamData.stream || streamData.url || streamData.sourceId;
-    if (!playlist) return null;
+    if (!streams || !streams.length) return null;
 
-    const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
-    return [{
-      url: playlist,
-      quality: "Auto",
-      referer: VIDLINK_BASE + "/",
-      ...(captions ? { captions } : {}),
-    }];
+    if (captions) {
+      for (const s of streams) s.captions = captions;
+    }
+
+    cacheSet(vidlinkStreamCache, cacheKey, streams, VIDLINK_STREAM_TTL);
+    return streams;
   } catch (err) {
     console.error(`[scraper] vidlink error:`, err.message);
     return null;
   }
 }
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = 1500) {
+export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = BATCH_TIMEOUT) {
   const sourceFunctions = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
-    { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
-    { name: "StreamIMDb.me", fn: () => tryStreamImdbMe(imdbId, type, season, episode) },
-    { name: "MultiEmbed", fn: () => tryMultiEmbed(imdbId, type, season, episode) },
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
-    { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
-    { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
   ];
 
@@ -392,7 +298,7 @@ async function probeVidlink(imdbId, type, season, episode) {
   const tmdb = await convertImdbToTmdb(imdbId);
   steps.tmdb = tmdb ? { ok: true, title: tmdb.title || tmdb.name, id: tmdb.id } : { ok: false, error: "tmdb lookup failed" };
   if (!tmdb) return { steps, decoded: null, playlist: null };
-  const encRes = await fetchWithTimeout(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, { headers: { "User-Agent": UA } });
+  const encRes = await fetchWithTimeout(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(String(tmdb.id))}`, { headers: chromeHeaders({ mode: "api" }) });
   steps.encDec = encRes ? { ok: true, status: encRes.status } : { ok: false, error: "enc-dec.app unreachable" };
   if (!encRes) return { steps, decoded: null, playlist: null };
   let encData;
@@ -404,7 +310,7 @@ async function probeVidlink(imdbId, type, season, episode) {
   const apiUrl = type === "series"
     ? `${VIDLINK_BASE}/api/b/tv/${encoded}/${season}/${episode}?multiLang=0`
     : `${VIDLINK_BASE}/api/b/movie/${encoded}?multiLang=0`;
-  const res = await fetchWithTimeout(apiUrl, { headers: { "User-Agent": UA, Referer: VIDLINK_BASE } });
+  const res = await fetchWithTimeout(apiUrl, { headers: chromeHeaders({ referer: VIDLINK_BASE, origin: VIDLINK_BASE, mode: "api", site: "same-origin" }) });
   steps.vidlinkApi = res ? { ok: true, status: res.status } : { ok: false, error: "vidlink.pro unreachable" };
   if (!res) return { steps, decoded: encoded, playlist: null };
   let data;
@@ -425,22 +331,6 @@ async function probeVidlink(imdbId, type, season, episode) {
   return { steps, decoded: encoded, playlist };
 }
 
-async function probePage(url, label) {
-  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA }, redirect: "follow" });
-  if (!res) return { status: "unreachable", statusCode: null, finalUrl: url, htmlPreview: null, sizeBytes: null };
-  const body = await res.text();
-  return {
-    status: "ok",
-    statusCode: res.status,
-    finalUrl: res.url,
-    sizeBytes: body.length,
-    hasIframe: body.includes("<iframe"),
-    hasM3u8: body.includes(".m3u8"),
-    hasSources: body.includes('"sources"'),
-    htmlPreview: body.slice(0, 600),
-  };
-}
-
 async function probeVixsrc(imdbId, type, season, episode) {
   const steps = {};
   const tmdb = await convertImdbToTmdb(imdbId);
@@ -450,7 +340,7 @@ async function probeVixsrc(imdbId, type, season, episode) {
   const apiUrl = type === "series"
     ? `https://vixsrc.to/api/tv/${tmdb.id}/${season}/${episode}`
     : `https://vixsrc.to/api/movie/${tmdb.id}`;
-  const apiRes = await fetchWithTimeout(apiUrl, { headers: { "User-Agent": UA, Referer: "https://vixsrc.to/" } });
+  const apiRes = await fetchWithTimeout(apiUrl, { headers: chromeHeaders({ referer: "https://vixsrc.to/", origin: "https://vixsrc.to", mode: "api", site: "same-origin" }) });
   steps.api = apiRes ? { ok: true, status: apiRes.status, url: apiUrl } : { ok: false, error: "unreachable" };
   if (!apiRes) return { steps, data: null, playerUrl: null };
   let apiData;
@@ -459,13 +349,13 @@ async function probeVixsrc(imdbId, type, season, episode) {
   if (!apiData?.src) return { steps, data: apiData, playerUrl: null };
   const playerUrl = `https://vixsrc.to${apiData.src}`;
   steps.playerUrl = playerUrl;
-  const playerRes = await fetchWithTimeout(playerUrl, { headers: { "User-Agent": UA, Referer: "https://vixsrc.to/" } });
+  const playerRes = await fetchWithTimeout(playerUrl, { headers: chromeHeaders({ referer: "https://vixsrc.to/", origin: "https://vixsrc.to", mode: "html", site: "same-origin" }) });
   steps.playerPage = playerRes ? { ok: true, status: playerRes.status } : { ok: false, error: "unreachable" };
   if (!playerRes) return { steps, data: apiData, playerUrl };
   const html = await playerRes.text();
   const token = html.match(/['"]token['"]\s*:\s*['"](\w+)['"]/);
   const expires = html.match(/['"]expires['"]\s*:\s*['"](\d+)['"]/);
-  const urlMatch = html.match(/masterPlaylist\s*=\s*\{[^}]*url:\s*['"]([^'"]+)['"]/);
+  const urlMatch = html.match(/masterPlaylist\s*=\s*\{[\s\S]*?url\s*:\s*['"]([^'"]+)['"]/);
   steps.extracted = {
     token: token ? token[1].slice(0, 20) + "..." : null,
     expires: expires ? expires[1] : null,
@@ -478,12 +368,7 @@ async function probeVixsrc(imdbId, type, season, episode) {
 export async function debugSources({ type, imdbId, season, episode }) {
   const sourceFunctions = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
-    { name: "StreamIMDb", fn: () => tryStreamImdbEmbed(imdbId, type, season, episode) },
-    { name: "StreamIMDb.me", fn: () => tryStreamImdbMe(imdbId, type, season, episode) },
-    { name: "MultiEmbed", fn: () => tryMultiEmbed(imdbId, type, season, episode) },
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
-    { name: "MovieWeb", fn: () => tryMovieWeb(imdbId, type, season, episode) },
-    { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
   ];
 
@@ -513,34 +398,12 @@ export async function debugSources({ type, imdbId, season, episode }) {
     }
   }
 
-  const streamimdbPath = type === "series"
-    ? `/embed/${imdbId}/${season}/${episode}/`
-    : `/embed/movie/${imdbId}`;
-
-  const multiembedUrl = type === "series"
-    ? `https://multiembed.mov/directstream.php?video_id=${imdbId}&s=${season}&e=${episode}`
-    : `https://multiembed.mov/directstream.php?video_id=${imdbId}`;
-
-  const [vidlinkProbe, streamimdbProbe, multiembedProbe, vixsrcProbe] = await Promise.all([
+  const [vidlinkProbe, vixsrcProbe] = await Promise.all([
     probeVidlink(imdbId, type, season, episode),
-    probePage(`${SCRAPE_URL}${streamimdbPath}`, "streamimdb.ru"),
-    probePage(multiembedUrl, "multiembed.mov"),
     probeVixsrc(imdbId, type, season, episode),
   ]);
-  results[4].vidlinkProbe = vidlinkProbe;
-  results[1].pageProbe = streamimdbProbe;
-  results[3].pageProbe = multiembedProbe;
-  results[7].vixsrcProbe = vixsrcProbe;
-
-  if (streamimdbProbe?.hasIframe && streamimdbProbe.htmlPreview) {
-    const iframeSrcMatch = streamimdbProbe.htmlPreview.match(/<iframe[^>]+src="([^"]+)"/);
-    if (iframeSrcMatch) {
-      let iframeUrl = iframeSrcMatch[1];
-      if (iframeUrl.startsWith("//")) iframeUrl = "https:" + iframeUrl;
-      if (iframeUrl.startsWith("/")) iframeUrl = "https://streamimdb.ru" + iframeUrl;
-      results[1].iframeProbe = await probePage(iframeUrl, "streamimdb.ru iframe");
-    }
-  }
+  results[1].vidlinkProbe = vidlinkProbe;
+  results[2].vixsrcProbe = vixsrcProbe;
 
   return results;
 }

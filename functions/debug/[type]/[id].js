@@ -1,5 +1,6 @@
 import { jsonResponse, handleOptions } from "../../../src/cors.js";
 import { debugSources } from "../../../src/scraper.js";
+import { TMDB_API_KEY } from "../../../src/config.js";
 
 export async function onRequestGet(context) {
   try {
@@ -7,7 +8,7 @@ export async function onRequestGet(context) {
     const cleanId = decodeURIComponent(String(id)).replace(/\.json$/, "");
     const origin = new URL(context.request.url).origin;
     globalThis.__proxyOrigin = origin;
-    globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || "";
+    globalThis.__tmdbApiKey = context.env.TMDB_API_KEY || TMDB_API_KEY;
 
     const parts = cleanId.split(":");
     const imdbId = parts[0];
@@ -20,10 +21,11 @@ export async function onRequestGet(context) {
     const totalEmpty = results.filter(r => r.status === "empty").length;
     const totalErr = results.filter(r => r.status === "error").length;
 
+    const resolvedKey = globalThis.__tmdbApiKey;
     return jsonResponse({
       ok: true,
-      tmdbApiKeySet: !!context.env.TMDB_API_KEY,
-      tmdbApiKeyPrefix: context.env.TMDB_API_KEY ? context.env.TMDB_API_KEY.slice(0, 8) + "..." : null,
+      tmdbApiKeySet: !!resolvedKey,
+      tmdbApiKeyPrefix: resolvedKey ? resolvedKey.slice(0, 8) + "..." : null,
       params: { type, imdbId, season, episode },
       summary: { total: results.length, success: totalOk, empty: totalEmpty, error: totalErr },
       results,
