@@ -54,6 +54,7 @@ function filterByQuality(streams, config) {
 }
 
 builder.defineStreamHandler(async ({ type, id, config }) => {
+  globalThis.__lastStreamActivity = Date.now();
   try {
     const parts = id.split(":");
     const imdbId = parts[0];
