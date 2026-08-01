@@ -11,7 +11,8 @@
     "deploy": "wrangler pages deploy public"
   },
   "dependencies": {
-    "stremio-addon-sdk": "^1.1.0"
+    "stremio-addon-sdk": "^1.1.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

@@ -1,5 +1,6 @@
 import { STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, BATCH_TIMEOUT, VIDAPI_ENABLED } from "./config.js";
 import { tryVixSrc } from "./vixsrc.js";
+import { encryptVidlinkToken } from "./vidlink.js";
 import { fetchWithTimeout, chromeHeaders, fetchWithRetry, headers, convertImdbToTmdb, sleep } from "./utils.js";
 import { collectCookies, cookieString } from "./cookies.js";
 
@@ -126,7 +127,7 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
 const vidlinkStreamCache = new Map();
 const vidlinkEncCache = new Map();
 const VIDLINK_STREAM_TTL = 5 * 60 * 1000;
-const VIDLINK_ENC_TTL = 24 * 60 * 60 * 1000;
+const VIDLINK_ENC_TTL = 3 * 60 * 1000;
 
 function cacheGet(map, key) {
   const hit = map.get(key);
@@ -155,18 +156,37 @@ function buildProxyUrl(targetUrl, referer, cookie) {
   return proxyUrl.href;
 }
 
-async function getVidlinkEncodedId(tmdbId) {
+async function getVidlinkEncodedId(tmdbId, preferEncDec = false) {
   const key = String(tmdbId);
-  const cached = cacheGet(vidlinkEncCache, key);
+  const cacheKey = `${preferEncDec ? "ed" : "local"}:${key}`;
+  const cached = cacheGet(vidlinkEncCache, cacheKey);
   if (cached) return cached;
-  const encRes = await fetchWithRetry(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(key)}`, {
-    headers: chromeHeaders({ mode: "api" }),
-  });
-  if (!encRes || !encRes.ok) return null;
-  const encData = await encRes.json();
-  const encoded = encData?.result;
+
+  let encoded = null;
+  if (!preferEncDec) {
+    try {
+      encoded = encryptVidlinkToken(tmdbId);
+    } catch (err) {
+      console.error(`[scraper] vidlink in-code encrypt error:`, err.message);
+    }
+  }
+
+  if (!encoded) {
+    try {
+      const encRes = await fetchWithRetry(`${ENC_VIDLINK_URL}?text=${encodeURIComponent(key)}`, {
+        headers: chromeHeaders({ mode: "api" }),
+      });
+      if (encRes && encRes.ok) {
+        const encData = await encRes.json().catch(() => null);
+        encoded = encData?.result || null;
+      }
+    } catch (err) {
+      console.error(`[scraper] vidlink enc-dec fallback error:`, err.message);
+    }
+  }
+
   if (!encoded) return null;
-  cacheSet(vidlinkEncCache, key, encoded, VIDLINK_ENC_TTL);
+  cacheSet(vidlinkEncCache, cacheKey, encoded, VIDLINK_ENC_TTL);
   return encoded;
 }
 
@@ -190,16 +210,25 @@ async function tryVidlink(imdbId, type, season, episode) {
     const tmdb = await convertImdbToTmdb(imdbId);
     if (!tmdb) return null;
 
+    const fetchVidlink = async (enc) => {
+      const apiUrl = type === "series"
+        ? `${VIDLINK_BASE}/api/b/tv/${enc}/${season}/${episode}?multiLang=0`
+        : `${VIDLINK_BASE}/api/b/movie/${enc}?multiLang=0`;
+      return fetchWithRetry(apiUrl, {
+        headers: chromeHeaders({ referer: VIDLINK_BASE, origin: VIDLINK_BASE, mode: "api", site: "same-origin" }),
+      });
+    };
+
     const encoded = await getVidlinkEncodedId(tmdb.id);
     if (!encoded) return null;
 
-    const apiUrl = type === "series"
-      ? `${VIDLINK_BASE}/api/b/tv/${encoded}/${season}/${episode}?multiLang=0`
-      : `${VIDLINK_BASE}/api/b/movie/${encoded}?multiLang=0`;
-
-    const res = await fetchWithRetry(apiUrl, {
-      headers: chromeHeaders({ referer: VIDLINK_BASE, origin: VIDLINK_BASE, mode: "api", site: "same-origin" }),
-    });
+    let res = await fetchVidlink(encoded);
+    if (!res || !res.ok) {
+      const fallbackEnc = await getVidlinkEncodedId(tmdb.id, true);
+      if (fallbackEnc && fallbackEnc !== encoded) {
+        res = await fetchVidlink(fallbackEnc);
+      }
+    }
     if (!res || !res.ok) return null;
 
     const data = await res.json();
