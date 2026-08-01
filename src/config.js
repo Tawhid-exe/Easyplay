@@ -8,7 +8,7 @@ export const TMDB_API_KEY = (typeof process !== "undefined" && process.env && pr
 
 export const FETCH_TIMEOUT = 10000;
 export const RETRY_ATTEMPTS = 3;
-export const BATCH_TIMEOUT = 4500;
+export const BATCH_TIMEOUT = 12000;
 
 export const VIDLINK_BASE = "https://vidlink.pro";
 export const ENC_VIDLINK_URL = "https://enc-dec.app/api/enc-vidlink";
@@ -25,4 +25,5 @@ export const SOURCE_NAMES = {
   vidapi: "VidAPI",
   vidlink: "Vidlink",
   vixsrc: "VixSrc",
-};
+  khdhub: "4KHDHub",
+  };

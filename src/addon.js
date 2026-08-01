@@ -79,7 +79,8 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
       const isProxy = s.url.includes("/proxy/hls");
       const qual = s.quality || "Auto";
       const src = s.source || "";
-      const title = label ? `${label} · ${qual} · ${src}` : `${qual} · ${src}`;
+      const extra = s.name ? ` · ${s.name}` : "";
+      const title = label ? `${label} · ${qual} · ${src}${extra}` : `${qual} · ${src}${extra}`;
 
       return {
         url: s.url,
