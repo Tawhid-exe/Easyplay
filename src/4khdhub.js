@@ -3,6 +3,41 @@ import { fetchWithTimeout, convertImdbToTmdb } from "./utils.js";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 const BASE_URLS = ["https://4khdhub.one", "https://4khdhub.fans"];
 const TIMEOUT = 10000;
+const HTML_TTL = 20 * 60 * 1000;
+const RESOLVED_TTL = 10 * 60 * 1000;
+
+const htmlCache = new Map();
+const resolvedCache = new Map();
+
+function cacheGet(map, key, ttl) {
+  const hit = map.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > ttl) {
+    map.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function cacheSet(map, key, value, ttl) {
+  if (map.size >= 400) {
+    const oldest = map.keys().next().value;
+    if (oldest) map.delete(oldest);
+  }
+  map.set(key, { ts: Date.now(), ttl, value });
+}
+
+async function fetchHtml(url, referer) {
+  const cached = cacheGet(htmlCache, url, HTML_TTL);
+  if (cached) return cached;
+  const res = await fetchWithTimeout(url, {
+    headers: { "User-Agent": UA, Referer: referer },
+  });
+  if (!res || !res.ok) return null;
+  const html = await res.text();
+  cacheSet(htmlCache, url, html, HTML_TTL);
+  return html;
+}
 
 function rot13(str) {
   return str.replace(/[a-zA-Z]/g, c => {
@@ -91,11 +126,8 @@ const DIRECT_RE = /r2\.cloudflarestorage\.com|pixeldrain|gdrive|terabox|\.mp4|\.
 const GENERATOR_RE = /sportverse|hubcloud\.php|hubcloud\.cx\/drive|hubcloud\.fans\/drive|hblink|gadgetsweb|redirect/i;
 
 async function resolvePageLinks(pageUrl) {
-  const res = await fetchWithTimeout(pageUrl, {
-    headers: { "User-Agent": UA, Referer: pageUrl },
-  });
-  if (!res || !res.ok) return [];
-  const html = await res.text();
+  const html = await fetchHtml(pageUrl, pageUrl);
+  if (!html) return [];
   const links = [];
   const seen = new Set();
 
@@ -117,11 +149,11 @@ async function resolvePageLinks(pageUrl) {
 }
 
 async function extractHubCloudLinks(pageUrl) {
-  const res = await fetchWithTimeout(pageUrl, {
-    headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/" },
-  });
-  if (!res || !res.ok) return [];
-  const html = await res.text();
+  const cached = cacheGet(resolvedCache, pageUrl, RESOLVED_TTL);
+  if (cached) return cached;
+
+  const html = await fetchHtml(pageUrl, BASE_URLS[0] + "/");
+  if (!html) return [];
   const links = [];
   const seen = new Set();
   const add = (arr) => {
@@ -147,6 +179,7 @@ async function extractHubCloudLinks(pageUrl) {
     }
   }
 
+  cacheSet(resolvedCache, pageUrl, links, RESOLVED_TTL);
   return links;
 }
 
@@ -155,12 +188,8 @@ async function searchContent(title, year, isSeries) {
 
   for (const baseUrl of BASE_URLS) {
     try {
-      const res = await fetchWithTimeout(`${baseUrl}/?s=${query}`, {
-        headers: { "User-Agent": UA },
-      });
-      if (!res || !res.ok) continue;
-
-      const html = await res.text();
+      const html = await fetchHtml(`${baseUrl}/?s=${query}`, baseUrl + "/");
+      if (!html) continue;
       const cards = [];
       const cardRe = /<a\b[^>]*class="movie-card"[^>]*>([\s\S]*?)<\/a>/gi;
       let cm;
@@ -218,11 +247,8 @@ async function searchContent(title, year, isSeries) {
 }
 
 async function loadMovieContent(pageUrl) {
-  const res = await fetchWithTimeout(pageUrl, {
-    headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/" },
-  });
-  if (!res || !res.ok) return [];
-  const html = await res.text();
+  const html = await fetchHtml(pageUrl, BASE_URLS[0] + "/");
+  if (!html) return [];
 
   const items = [];
   const blocks = extractBlocks(html, "download-item");
@@ -259,11 +285,8 @@ async function loadMovieContent(pageUrl) {
 }
 
 async function loadSeriesContent(pageUrl, season, episode) {
-  const res = await fetchWithTimeout(pageUrl, {
-    headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/" },
-  });
-  if (!res || !res.ok) return [];
-  const html = await res.text();
+  const html = await fetchHtml(pageUrl, BASE_URLS[0] + "/");
+  if (!html) return [];
 
   const items = [];
   const blocks = extractBlocks(html, "episode-download-item");
@@ -360,11 +383,8 @@ export async function try4KHDHub(imdbId, type, season, episode) {
         if (link.includes("hubcloud") || link.match(/\/\?id=/)) {
           finalUrls.push(...await extractHubCloudLinks(link));
         } else if (link.includes("hubdrive")) {
-          const r = await fetchWithTimeout(link, {
-            headers: { "User-Agent": UA, Referer: pageUrl },
-          });
-          if (r && r.ok) {
-            const h = await r.text();
+          const h = await fetchHtml(link, pageUrl);
+          if (h) {
             const hm = h.match(/href="([^"]*hubcloud[^"]*)"/);
             if (hm) {
               finalUrls.push(...await extractHubCloudLinks(hm[1]));

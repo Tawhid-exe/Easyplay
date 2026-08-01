@@ -79,16 +79,28 @@ export function extractM3u8(text) {
   return m ? m[0].replace(/\\/g, "") : null;
 }
 
+const tmdbCache = new Map();
+
 export async function convertImdbToTmdb(imdbId) {
   const apiKey = globalThis.__tmdbApiKey || TMDB_API_KEY;
   if (!apiKey || apiKey.startsWith("PASTE_")) return null;
+  const cached = tmdbCache.get(imdbId);
+  if (cached) return cached;
   try {
     const res = await fetchWithTimeout(TMDB_FIND_URL(imdbId, apiKey), {
       headers: chromeHeaders({ mode: "api" }),
     });
     if (!res || !res.ok) return null;
     const data = await res.json();
-    return data?.movie_results?.[0] || data?.tv_results?.[0] || null;
+    const result = data?.movie_results?.[0] || data?.tv_results?.[0] || null;
+    if (result) {
+      if (tmdbCache.size >= 400) {
+        const oldest = tmdbCache.keys().next().value;
+        if (oldest) tmdbCache.delete(oldest);
+      }
+      tmdbCache.set(imdbId, result);
+    }
+    return result;
   } catch {
     return null;
   }
