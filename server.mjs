@@ -1,12 +1,36 @@
+import os from "node:os";
 import pkg from "stremio-addon-sdk";
 const { serveHTTP } = pkg;
 import addonInterface from "./src/addon.js";
 import { TMDB_API_KEY } from "./src/config.js";
 
-globalThis.__proxyOrigin = `http://localhost:${process.env.PORT || 7000}`;
+const PORT = Number(process.env.PORT || 7000);
+
+function getLanIp() {
+  const nets = os.networkInterfaces();
+  const candidates = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      const family = String(net.family);
+      if ((family === "IPv4" || family === "4") && !net.internal && !net.address.startsWith("169.254.")) {
+        candidates.push({ addr: net.address, name });
+      }
+    }
+  }
+  const inPrivate = (a) => a.startsWith("192.168.") || a.startsWith("10.") || /^172\.(1[6-9]|2\d|3[01])\./.test(a);
+  const priv = candidates.filter((c) => inPrivate(c.addr));
+  const pick = priv[0] || candidates[0];
+  return pick ? pick.addr : "127.0.0.1";
+}
+
+const lanIp = process.env.HOST_IP || getLanIp();
+globalThis.__proxyOrigin = `http://${lanIp}:${PORT}`;
 globalThis.__tmdbApiKey = process.env.TMDB_API_KEY || TMDB_API_KEY;
 
-serveHTTP(addonInterface, { port: process.env.PORT || 7000 });
+serveHTTP(addonInterface, { port: PORT });
+console.log(`\nAddon URLs:`);
+console.log(`  This PC : http://localhost:${PORT}/manifest.json`);
+console.log(`  Phone   : http://${lanIp}:${PORT}/manifest.json   (same WiFi, or set HOST_IP to override)`);
 
 const IDLE_MIN = Number(process.env.IDLE_TIMEOUT_MIN || 90);
 const bootTime = Date.now();
