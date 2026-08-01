@@ -26,6 +26,7 @@ cat > "$SHORTCUTS/start-server.sh" <<'EOF'
 #!/usr/bin/env bash
 termux-wake-lock
 cd "$HOME/Easyplay" || exit 1
+export ADDON_NAME="Easyplay (local)"
 exec node server.mjs
 EOF
 chmod +x "$SHORTCUTS/start-server.sh"

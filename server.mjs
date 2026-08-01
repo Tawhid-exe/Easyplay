@@ -1,8 +1,11 @@
 import os from "node:os";
+import express from "express";
+import cors from "cors";
 import pkg from "stremio-addon-sdk";
-const { serveHTTP } = pkg;
+const { getRouter } = pkg;
 import addonInterface from "./src/addon.js";
 import { TMDB_API_KEY } from "./src/config.js";
+import { resolve4khdhubPreview } from "./src/4khdhub.js";
 
 const PORT = Number(process.env.PORT || 7000);
 
@@ -26,11 +29,45 @@ function getLanIp() {
 const lanIp = process.env.HOST_IP || getLanIp();
 globalThis.__proxyOrigin = `http://${lanIp}:${PORT}`;
 globalThis.__tmdbApiKey = process.env.TMDB_API_KEY || TMDB_API_KEY;
+globalThis.__addonName = process.env.ADDON_NAME || "Easyplay (local)";
+addonInterface.manifest = { ...addonInterface.manifest, name: globalThis.__addonName };
 
-serveHTTP(addonInterface, { port: PORT });
-console.log(`\nAddon URLs:`);
-console.log(`  This PC : http://localhost:${PORT}/manifest.json`);
-console.log(`  Phone   : http://${lanIp}:${PORT}/manifest.json   (same WiFi, or set HOST_IP to override)`);
+const app = express();
+app.use(cors());
+
+app.get("/resolve", async (req, res) => {
+  const d = req.query.d;
+  if (!d || typeof d !== "string") {
+    res.status(400).json({ error: "missing d" });
+    return;
+  }
+  try {
+    const url = await resolve4khdhubPreview(d);
+    if (!url) {
+      res.status(404).json({ error: "no playable link found" });
+      return;
+    }
+    res.redirect(302, url);
+  } catch (err) {
+    console.error(`[server] /resolve error:`, err.message);
+    res.status(500).json({ error: "resolve failed" });
+  }
+});
+
+app.use(getRouter(addonInterface));
+
+const landingHTML = `<html><body><h1>${addonInterface.manifest.name}</h1><p>Add this URL in Stremio:</p><code>http://localhost:${PORT}/manifest.json</code></body></html>`;
+
+app.get("/", (_, res) => {
+  res.setHeader("content-type", "text/html");
+  res.end(landingHTML);
+});
+
+app.listen(PORT, () => {
+  console.log(`\nAddon URLs:`);
+  console.log(`  This PC : http://localhost:${PORT}/manifest.json`);
+  console.log(`  Phone   : http://${lanIp}:${PORT}/manifest.json   (same WiFi, or set HOST_IP to override)`);
+});
 
 const IDLE_MIN = Number(process.env.IDLE_TIMEOUT_MIN || 90);
 const bootTime = Date.now();

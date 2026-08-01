@@ -84,7 +84,7 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
 
       return {
         url: s.url,
-        name: ADDON_NAME,
+        name: globalThis.__addonName || ADDON_NAME,
         title,
         behaviorHints: {
           notWebReady: isHls && !isProxy,

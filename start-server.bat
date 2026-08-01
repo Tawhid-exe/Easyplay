@@ -37,6 +37,7 @@ echo  Addon URL:  http://localhost:7000/manifest.json
 echo  Press Ctrl+C when done watching to stop the server.
 echo.
 
+set "ADDON_NAME=Easyplay (local)"
 node server.mjs
 if errorlevel 1 (
   echo.

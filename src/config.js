@@ -10,6 +10,11 @@ export const FETCH_TIMEOUT = 10000;
 export const RETRY_ATTEMPTS = 3;
 export const BATCH_TIMEOUT = 12000;
 
+// Lazy-load 4KHDHub: return preview streams immediately and resolve the real
+// direct link only when the user presses play (via /resolve on the local server).
+// Set KHDHUB_LAZY_LOAD=0 to force full extraction at lookup time.
+export const KHDHUB_LAZY_LOAD = (typeof process !== "undefined" && process.env && process.env.KHDHUB_LAZY_LOAD !== "0");
+
 export const VIDLINK_BASE = "https://vidlink.pro";
 export const ENC_VIDLINK_URL = "https://enc-dec.app/api/enc-vidlink";
 export const TMDB_API_URL = "https://api.themoviedb.org/3";
@@ -17,7 +22,7 @@ export const TMDB_FIND_URL = (imdbId, key) =>
   `${TMDB_API_URL}/find/${imdbId}?external_source=imdb_id&api_key=${key}`;
 
 export const ADDON_ID = "org.custom.scraper";
-export const ADDON_NAME = "Easyplay";
+export const ADDON_NAME = (typeof process !== "undefined" && process.env && process.env.ADDON_NAME) || "Easyplay";
 export const ADDON_DESCRIPTION = "Fetches streams from multiple sources with HLS proxy support";
 export const ADDON_VERSION = "1.0.0";
 

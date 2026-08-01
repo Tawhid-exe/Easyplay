@@ -44,6 +44,22 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     <a class="btn btn-primary" id="installLink" href="#">Install in Stremio</a>
   </p>
 
+  <div class="section-title">Local Server (backup)</div>
+  <p style="font-size:13px;color:#999;margin-bottom:8px">
+    Run your own copy on a residential IP as a backup if the cloud host ever gets IP-blocked:
+  </p>
+  <div class="url-row" style="flex-direction:column;align-items:stretch;gap:10px">
+    <button class="btn btn-primary" id="cmdBtn" type="button">Copy Termux command</button>
+    <a class="btn btn-secondary" id="pcBtn" href="easyplay-pc.bat" download>Download PC setup (.bat)</a>
+    <a class="btn btn-secondary" id="shBtn" href="easyplay-android.sh" download>Download Android setup (.sh)</a>
+    <span id="cmd-copied-msg" style="color:#4ade80;font-size:13px;display:none">Copied!</span>
+  </div>
+  <p style="font-size:12px;color:#777;margin-top:10px">
+    Android (Termux): tap "Copy Termux command", paste it in Termux — it installs a
+    home-screen widget once; tap the widget to start/stop the server (first run downloads
+    the repo once). Download the .sh for offline use. Windows: double-click the .bat.
+  </p>
+
   <div class="section-title">Quality Settings</div>
   <p style="font-size:13px;color:#999;margin-bottom:10px">
     Choose which qualities appear in your stream list:
@@ -111,6 +127,23 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
       setTimeout(function(){ m.style.display = "none"; }, 2000);
     });
   });
+
+  var TERMUX_CMD = "curl -sL https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/public/easyplay-android.sh | bash";
+  document.getElementById("cmdBtn").addEventListener("click", function(){
+    navigator.clipboard.writeText(TERMUX_CMD).then(function(){
+      var m = document.getElementById("cmd-copied-msg");
+      m.style.display = "inline";
+      setTimeout(function(){ m.style.display = "none"; }, 2000);
+    });
+  });
+
+  var isAndroid = /Android/i.test(navigator.userAgent);
+  var isWindows = /Windows/i.test(navigator.userAgent) || /^Win/i.test(navigator.platform || "");
+  var pcBtn = document.getElementById("pcBtn");
+  var cmdBtn = document.getElementById("cmdBtn");
+  var shBtn = document.getElementById("shBtn");
+  var order = isAndroid ? [cmdBtn, shBtn, pcBtn] : [pcBtn, cmdBtn, shBtn];
+  order.forEach(function(b){ b.parentNode.appendChild(b); });
 
   var savedMsg = document.getElementById("saved-msg");
 

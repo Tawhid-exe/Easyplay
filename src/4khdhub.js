@@ -1,4 +1,5 @@
 import { fetchWithTimeout, convertImdbToTmdb } from "./utils.js";
+import { KHDHUB_LAZY_LOAD } from "./config.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 const BASE_URLS = ["https://4khdhub.one", "https://4khdhub.fans"];
@@ -8,6 +9,7 @@ const RESOLVED_TTL = 10 * 60 * 1000;
 
 const htmlCache = new Map();
 const resolvedCache = new Map();
+const previewCache = new Map();
 
 function cacheGet(map, key, ttl) {
   const hit = map.get(key);
@@ -350,6 +352,78 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
+async function resolveItemLinks(item, pageUrl) {
+  const finalUrls = [];
+  for (const link of item.downloadLinks) {
+    if (link.includes("hubcloud") || link.match(/\/\?id=/)) {
+      finalUrls.push(...await extractHubCloudLinks(link));
+    } else if (link.includes("hubdrive")) {
+      const h = await fetchHtml(link, pageUrl);
+      if (h) {
+        const hm = h.match(/href="([^"]*hubcloud[^"]*)"/);
+        if (hm) {
+          finalUrls.push(...await extractHubCloudLinks(hm[1]));
+        }
+      }
+    } else if (link.match(/\.(mp4|mkv|avi)$/i)) {
+      finalUrls.push(link);
+    } else if (link.match(/gadgetsweb|hblink|redirect/i)) {
+      const resolvedUrl = await resolveRedirect(link);
+      if (resolvedUrl) finalUrls.push(resolvedUrl);
+    }
+  }
+  return finalUrls;
+}
+
+async function isSeekable(url) {
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/", range: "bytes=0-0" },
+    }, 6000);
+    if (!res) return "inconclusive";
+    if (res.status === 206 || res.status === 200) return "ok";
+    return "dead";
+  } catch {
+    return "inconclusive";
+  }
+}
+
+function linkPriority(url) {
+  if (/r2\.cloudflarestorage|\.(mp4|mkv|avi)(\?|$)/i.test(url)) return 3;
+  if (/pixeldrain/i.test(url)) return 2;
+  return 1;
+}
+
+export async function resolve4khdhubPreview(d) {
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(d, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  const { pageUrl, links } = payload || {};
+  if (!pageUrl || !Array.isArray(links) || !links.length) return null;
+
+  const cacheKey = `preview:${d}`;
+  const cached = cacheGet(previewCache, cacheKey, RESOLVED_TTL);
+  if (cached) return cached;
+
+  const finalUrls = await resolveItemLinks({ downloadLinks: links }, pageUrl);
+  const unique = [...new Set(finalUrls)];
+  if (!unique.length) return null;
+
+  unique.sort((a, b) => linkPriority(b) - linkPriority(a));
+
+  const results = await mapLimit(unique, 4, async (u) => ({ u, s: await isSeekable(u) }));
+  const ok = results.filter(r => r.s === "ok").map(r => r.u);
+  const inconclusive = results.filter(r => r.s === "inconclusive").map(r => r.u);
+  const chosen = ok[0] || inconclusive[0] || null;
+  if (!chosen) return null;
+
+  cacheSet(previewCache, cacheKey, chosen, RESOLVED_TTL);
+  return chosen;
+}
+
 export async function try4KHDHub(imdbId, type, season, episode) {
   try {
     const tmdb = await convertImdbToTmdb(imdbId);
@@ -377,35 +451,11 @@ export async function try4KHDHub(imdbId, type, season, episode) {
     const streams = [];
     const seenUrls = new Set();
 
-    const resolved = await mapLimit(items, 3, async (item) => {
-      const finalUrls = [];
-      for (const link of item.downloadLinks) {
-        if (link.includes("hubcloud") || link.match(/\/\?id=/)) {
-          finalUrls.push(...await extractHubCloudLinks(link));
-        } else if (link.includes("hubdrive")) {
-          const h = await fetchHtml(link, pageUrl);
-          if (h) {
-            const hm = h.match(/href="([^"]*hubcloud[^"]*)"/);
-            if (hm) {
-              finalUrls.push(...await extractHubCloudLinks(hm[1]));
-            }
-          }
-        } else if (link.match(/\.(mp4|mkv|avi)$/i)) {
-          finalUrls.push(link);
-        } else if (link.match(/gadgetsweb|hblink|redirect/i)) {
-          const resolvedUrl = await resolveRedirect(link);
-          if (resolvedUrl) finalUrls.push(resolvedUrl);
-        }
-      }
-      return { item, finalUrls };
-    });
+    const proxyOrigin = globalThis.__proxyOrigin;
+    const lazy = !!(KHDHUB_LAZY_LOAD && proxyOrigin);
 
-    for (const { item, finalUrls } of resolved) {
-      for (const url of finalUrls) {
-        const key = url.split("?")[0].split("#")[0];
-        if (seenUrls.has(key)) continue;
-        seenUrls.add(key);
-
+    if (lazy) {
+      for (const item of items) {
         const parts = [item.quality || "Auto"];
         if (item.codec) parts.push(item.codec);
         if (item.hdr) parts.push(item.hdr);
@@ -416,12 +466,43 @@ export async function try4KHDHub(imdbId, type, season, episode) {
           parts.push(sizeStr);
         }
 
+        const payload = Buffer.from(JSON.stringify({ pageUrl, links: item.downloadLinks })).toString("base64url");
         streams.push({
-          url,
+          url: `${proxyOrigin}/resolve?d=${payload}`,
           quality: item.quality || "Auto",
           referer: pageUrl,
           name: parts.slice(1).join(" · "),
         });
+      }
+    } else {
+      const resolved = await mapLimit(items, 3, async (item) => ({
+        item,
+        finalUrls: await resolveItemLinks(item, pageUrl),
+      }));
+
+      for (const { item, finalUrls } of resolved) {
+        for (const url of finalUrls) {
+          const key = url.split("?")[0].split("#")[0];
+          if (seenUrls.has(key)) continue;
+          seenUrls.add(key);
+
+          const parts = [item.quality || "Auto"];
+          if (item.codec) parts.push(item.codec);
+          if (item.hdr) parts.push(item.hdr);
+          if (item.size) {
+            const sizeStr = item.size >= 1024
+              ? `${(item.size / 1024).toFixed(1)} TB`
+              : `${item.size.toFixed(1)} GB`;
+            parts.push(sizeStr);
+          }
+
+          streams.push({
+            url,
+            quality: item.quality || "Auto",
+            referer: pageUrl,
+            name: parts.slice(1).join(" · "),
+          });
+        }
       }
     }
 

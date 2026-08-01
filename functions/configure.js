@@ -1,3 +1,5 @@
+import { ADDON_NAME } from "../src/config.js";
+
 const QUALITIES = [
   { key: "q_240", label: "240p" },
   { key: "q_360", label: "360p" },
@@ -35,7 +37,7 @@ function html(config) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Easyplay — Quality Settings</title>
+<title>${ADDON_NAME} — Quality Settings</title>
 <style>
   * { box-sizing:border-box; margin:0; padding:0 }
   body { font-family:-apple-system,system-ui,sans-serif; background:#0f0f0f; color:#eee; min-height:100vh; display:flex; justify-content:center; align-items:center }
@@ -50,7 +52,7 @@ function html(config) {
 </head>
 <body>
 <div class="card">
-  <h1>Easyplay</h1>
+  <h1>${ADDON_NAME}</h1>
   <div class="hint">Choose which qualities to show in your stream list</div>
   <form method="POST" action="/configure">
     <div class="checks">${checks}</div>
