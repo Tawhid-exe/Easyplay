@@ -1,4 +1,5 @@
-import { fetchWithTimeout, convertImdbToTmdb } from "./utils.js";
+import { fetchWithTimeout, convertImdbToTmdb, parseSize, parseQuality, extractBlocks, formatSize, parseCodec, parseHdr, isSeekable, linkPriority, mapLimit } from "./utils.js";
+import { resolveLink } from "./extractors.js";
 import { KHDHUB_LAZY_LOAD } from "./config.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
@@ -8,7 +9,6 @@ const HTML_TTL = 20 * 60 * 1000;
 const RESOLVED_TTL = 10 * 60 * 1000;
 
 const htmlCache = new Map();
-const resolvedCache = new Map();
 const previewCache = new Map();
 
 function cacheGet(map, key, ttl) {
@@ -39,150 +39,6 @@ async function fetchHtml(url, referer) {
   const html = await res.text();
   cacheSet(htmlCache, url, html, HTML_TTL);
   return html;
-}
-
-function rot13(str) {
-  return str.replace(/[a-zA-Z]/g, c => {
-    const code = c.charCodeAt(0);
-    const base = code <= 90 ? 65 : 97;
-    return String.fromCharCode(((code - base + 13) % 26) + base);
-  });
-}
-
-function base64Decode(str) {
-  try { return atob(str); } catch { return null; }
-}
-
-function parseSize(text) {
-  const m = text.match(/([\d.]+)\s*(TB|GB|MB)/i);
-  if (!m) return null;
-  const num = parseFloat(m[1]);
-  const unit = m[2].toUpperCase();
-  if (unit === "TB") return num * 1024;
-  if (unit === "GB") return num;
-  if (unit === "MB") return num / 1024;
-  return null;
-}
-
-function parseQuality(text) {
-  if (/\b2160p\b|2160|(?:^|[^\w])4k\b/i.test(text)) return "2160p";
-  if (/\b1080p\b|1080|(?:^|[^\w])fhd\b/i.test(text)) return "1080p";
-  if (/\b720p\b|(?:^|[^\w])720\b/i.test(text)) return "720p";
-  const m = text.match(/(\d{3,4}p)/i);
-  return m ? m[1].toLowerCase() : null;
-}
-
-function extractAll(html, left, right) {
-  const results = [];
-  let idx = 0;
-  while (true) {
-    const l = html.indexOf(left, idx);
-    if (l === -1) break;
-    const r = html.indexOf(right, l + left.length);
-    if (r === -1) break;
-    results.push(html.slice(l + left.length, r));
-    idx = r + right.length;
-  }
-  return results;
-}
-
-function extractBlocks(html, className) {
-  const blocks = [];
-  const re = new RegExp(`<div class="${className}[\\s\\S]*?<\\/div>\\s*<\\/div>`, "g");
-  let m;
-  while ((m = re.exec(html)) !== null) blocks.push(m[0]);
-  return blocks;
-}
-
-async function resolveRedirect(url) {
-  const res = await fetchWithTimeout(url, {
-    headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/" },
-  });
-  if (!res || !res.ok) return null;
-  const html = await res.text();
-
-  let match = html.match(/s\s*\(\s*'o'\s*,\s*'([A-Za-z0-9+/=]+)'\s*\)/);
-  if (!match) {
-    match = html.match(/ck\s*\(\s*'_wp_http_[^']+'\s*,\s*'([^']+)'\s*\)/);
-  }
-  if (!match) return null;
-
-  try {
-    let data = match[1];
-    let step1 = base64Decode(data);
-    if (!step1) return null;
-    let step2 = base64Decode(step1);
-    if (!step2) return null;
-    let step3 = rot13(step2);
-    let step4 = base64Decode(step3);
-    if (!step4) return null;
-    let parsed = JSON.parse(step4);
-    if (!parsed.o) return null;
-    return base64Decode(parsed.o) || null;
-  } catch {
-    return null;
-  }
-}
-
-const DIRECT_RE = /r2\.cloudflarestorage\.com|pixeldrain|gdrive|terabox|\.mp4|\.mkv|\.avi/i;
-const GENERATOR_RE = /sportverse|hubcloud\.php|hubcloud\.cx\/drive|hubcloud\.fans\/drive|hblink|gadgetsweb|redirect/i;
-
-async function resolvePageLinks(pageUrl) {
-  const html = await fetchHtml(pageUrl, pageUrl);
-  if (!html) return [];
-  const links = [];
-  const seen = new Set();
-
-  const anchors = html.matchAll(/<a\s[^>]*href="([^"]+)"[^>]*>/gi);
-  for (const a of anchors) {
-    let href = a[1];
-    if (href.startsWith("//")) href = "https:" + href;
-    if (!DIRECT_RE.test(href)) continue;
-    if (/pixeld/i.test(href)) {
-      const uid = href.match(/\/u\/(\w+)/);
-      if (uid) href = `https://pixeldrain.dev/api/file/${uid[1]}?download`;
-    }
-    if (!seen.has(href)) {
-      seen.add(href);
-      links.push(href);
-    }
-  }
-  return links;
-}
-
-async function extractHubCloudLinks(pageUrl) {
-  const cached = cacheGet(resolvedCache, pageUrl, RESOLVED_TTL);
-  if (cached) return cached;
-
-  const html = await fetchHtml(pageUrl, BASE_URLS[0] + "/");
-  if (!html) return [];
-  const links = [];
-  const seen = new Set();
-  const add = (arr) => {
-    for (const l of arr) {
-      if (!seen.has(l)) {
-        seen.add(l);
-        links.push(l);
-      }
-    }
-  };
-
-  const urlMatch = html.match(/var\s+url\s*=\s*'([^']+)'/);
-  if (urlMatch) {
-    add(await resolvePageLinks(urlMatch[1]));
-  }
-
-  const genAnchors = html.matchAll(/<a\s[^>]*href="([^"]+)"[^>]*>/gi);
-  for (const a of genAnchors) {
-    let href = a[1];
-    if (href.startsWith("//")) href = "https:" + href;
-    if (GENERATOR_RE.test(href)) {
-      add(await resolvePageLinks(href));
-    }
-  }
-
-  cacheSet(resolvedCache, pageUrl, links, RESOLVED_TTL);
-  return links;
 }
 
 async function searchContent(title, year, isSeries) {
@@ -274,8 +130,8 @@ async function loadMovieContent(pageUrl) {
     }
 
     const quality = parseQuality(block) || "Auto";
-    const codec = /HEVC|H\.?265/i.test(block) ? "HEVC" : /H\.?264|AVC/i.test(block) ? "H.264" : "";
-    const hdr = /Dolby\s*Vision|DV[^A-Za-z]|HDR(?:10)?/i.test(block) ? "HDR" : "";
+    const codec = parseCodec(block);
+    const hdr = parseHdr(block);
 
     const filenameMatch = block.match(/([A-Z][\w.\-\[\]()]+\.(?:mkv|mp4|avi))/i);
     const filename = filenameMatch ? filenameMatch[1] : "";
@@ -327,8 +183,8 @@ async function loadSeriesContent(pageUrl, season, episode) {
     }
 
     const quality = parseQuality(block) || "Auto";
-    const codec = /HEVC|H\.?265/i.test(block) ? "HEVC" : "";
-    const hdr = /Dolby\s*Vision|DV[^A-Za-z]|HDR(?:10)?/i.test(block) ? "HDR" : "";
+    const codec = parseCodec(block);
+    const hdr = parseHdr(block);
 
     const filenameMatch = block.match(/([A-Z][\w.\-\[\]()]+\.(?:mkv|mp4|avi))/i);
     const filename = filenameMatch ? filenameMatch[1] : "";
@@ -339,59 +195,12 @@ async function loadSeriesContent(pageUrl, season, episode) {
   return items;
 }
 
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const idx = next++;
-      results[idx] = await fn(items[idx]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
 async function resolveItemLinks(item, pageUrl) {
   const finalUrls = [];
   for (const link of item.downloadLinks) {
-    if (link.includes("hubcloud") || link.match(/\/\?id=/)) {
-      finalUrls.push(...await extractHubCloudLinks(link));
-    } else if (link.includes("hubdrive")) {
-      const h = await fetchHtml(link, pageUrl);
-      if (h) {
-        const hm = h.match(/href="([^"]*hubcloud[^"]*)"/);
-        if (hm) {
-          finalUrls.push(...await extractHubCloudLinks(hm[1]));
-        }
-      }
-    } else if (link.match(/\.(mp4|mkv|avi)$/i)) {
-      finalUrls.push(link);
-    } else if (link.match(/gadgetsweb|hblink|redirect/i)) {
-      const resolvedUrl = await resolveRedirect(link);
-      if (resolvedUrl) finalUrls.push(resolvedUrl);
-    }
+    finalUrls.push(...await resolveLink(link, pageUrl));
   }
   return finalUrls;
-}
-
-async function isSeekable(url) {
-  try {
-    const res = await fetchWithTimeout(url, {
-      headers: { "User-Agent": UA, Referer: BASE_URLS[0] + "/", range: "bytes=0-0" },
-    }, 6000);
-    if (!res) return "inconclusive";
-    if (res.status === 206 || res.status === 200) return "ok";
-    return "dead";
-  } catch {
-    return "inconclusive";
-  }
-}
-
-function linkPriority(url) {
-  if (/r2\.cloudflarestorage|\.(mp4|mkv|avi)(\?|$)/i.test(url)) return 3;
-  if (/pixeldrain/i.test(url)) return 2;
-  return 1;
 }
 
 export async function resolve4khdhubPreview(d) {
@@ -414,7 +223,7 @@ export async function resolve4khdhubPreview(d) {
 
   unique.sort((a, b) => linkPriority(b) - linkPriority(a));
 
-  const results = await mapLimit(unique, 4, async (u) => ({ u, s: await isSeekable(u) }));
+  const results = await mapLimit(unique, 4, async (u) => ({ u, s: await isSeekable(u, { referer: pageUrl }) }));
   const ok = results.filter(r => r.s === "ok").map(r => r.u);
   const inconclusive = results.filter(r => r.s === "inconclusive").map(r => r.u);
   const chosen = ok[0] || inconclusive[0] || null;
@@ -459,12 +268,7 @@ export async function try4KHDHub(imdbId, type, season, episode) {
         const parts = [item.quality || "Auto"];
         if (item.codec) parts.push(item.codec);
         if (item.hdr) parts.push(item.hdr);
-        if (item.size) {
-          const sizeStr = item.size >= 1024
-            ? `${(item.size / 1024).toFixed(1)} TB`
-            : `${item.size.toFixed(1)} GB`;
-          parts.push(sizeStr);
-        }
+        if (item.size) parts.push(formatSize(item.size));
 
         const payload = Buffer.from(JSON.stringify({ pageUrl, links: item.downloadLinks })).toString("base64url");
         streams.push({
@@ -489,12 +293,7 @@ export async function try4KHDHub(imdbId, type, season, episode) {
           const parts = [item.quality || "Auto"];
           if (item.codec) parts.push(item.codec);
           if (item.hdr) parts.push(item.hdr);
-          if (item.size) {
-            const sizeStr = item.size >= 1024
-              ? `${(item.size / 1024).toFixed(1)} TB`
-              : `${item.size.toFixed(1)} GB`;
-            parts.push(sizeStr);
-          }
+          if (item.size) parts.push(formatSize(item.size));
 
           streams.push({
             url,

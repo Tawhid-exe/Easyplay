@@ -21,6 +21,38 @@ export const TMDB_API_URL = "https://api.themoviedb.org/3";
 export const TMDB_FIND_URL = (imdbId, key) =>
   `${TMDB_API_URL}/find/${imdbId}?external_source=imdb_id&api_key=${key}`;
 
+const env = (typeof process !== "undefined" && process.env) || {};
+
+function boolEnv(name, def) {
+  const v = env[name];
+  if (v === undefined || v === null || v === "") return def;
+  return v !== "0" && v !== "false" && v !== "no";
+}
+
+// HDHub4u: WordPress index site; domains rotate, live list fetched from community JSON.
+export const HDHUB4U_ENABLED = boolEnv("HDHUB4U_ENABLED", true);
+export const HDHUB4U_BASE_URLS = ["https://hdhub4u.frl"];
+export const HDHUB4U_DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+export const HDHUB4U_DOMAINS_KEY = "hdhub4u";
+
+// MoviesDrive: WordPress download aggregator; domains rotate.
+export const MOVIESDRIVE_ENABLED = boolEnv("MOVIESDRIVE_ENABLED", true);
+export const MOVIESDRIVE_BASE_URLS = ["https://moviesdrive.net"];
+export const MOVIESDRIVE_DOMAINS_URL = "https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json";
+export const MOVIESDRIVE_DOMAINS_KEY = "moviesdrive";
+
+// HiAnime: third-party API wrapping hianime.to (megacloud decryptor lives server-side).
+// Public instances come and go; HIANIME_API_BASE is the primary and HIANIME_API_BASES
+// is the ordered fallback list (can be set via comma-separated HIANIME_API_BASES env).
+export const HIANIME_ENABLED = boolEnv("HIANIME_ENABLED", true);
+export const HIANIME_API_BASE = env.HIANIME_API_BASE || "https://hianime-api-b6ix.onrender.com";
+export const HIANIME_API_BASES = (env.HIANIME_API_BASES || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean)
+  .concat([HIANIME_API_BASE, "https://hianime-api-iy4s.onrender.com"]);
+export const HIANIME_REFERER = "https://hianime.to/";
+
 export const ADDON_ID = "org.custom.scraper";
 export const ADDON_NAME = (typeof process !== "undefined" && process.env && process.env.ADDON_NAME) || "Easyplay";
 export const ADDON_DESCRIPTION = "Fetches streams from multiple sources with HLS proxy support";
@@ -31,4 +63,7 @@ export const SOURCE_NAMES = {
   vidlink: "Vidlink",
   vixsrc: "VixSrc",
   khdhub: "4KHDHub",
+  hdhub4u: "HDHub4u",
+  moviesdrive: "MoviesDrive",
+  hianime: "HiAnime",
   };

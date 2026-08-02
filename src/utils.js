@@ -79,6 +79,138 @@ export function extractM3u8(text) {
   return m ? m[0].replace(/\\/g, "") : null;
 }
 
+export function rot13(str) {
+  return str.replace(/[a-zA-Z]/g, c => {
+    const code = c.charCodeAt(0);
+    const base = code <= 90 ? 65 : 97;
+    return String.fromCharCode(((code - base + 13) % 26) + base);
+  });
+}
+
+export function base64Decode(str) {
+  try { return atob(str); } catch { return null; }
+}
+
+export function parseSize(text) {
+  const m = text.match(/([\d.]+)\s*(TB|GB|MB)/i);
+  if (!m) return null;
+  const num = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  if (unit === "TB") return num * 1024;
+  if (unit === "GB") return num;
+  if (unit === "MB") return num / 1024;
+  return null;
+}
+
+export function formatSize(size) {
+  if (size == null || !Number.isFinite(size)) return "";
+  return size >= 1024
+    ? `${(size / 1024).toFixed(1)} TB`
+    : `${size.toFixed(1)} GB`;
+}
+
+export function parseQuality(text) {
+  if (/\b2160p\b|2160|(?:^|[^\w])4k\b/i.test(text)) return "2160p";
+  if (/\b1080p\b|1080|(?:^|[^\w])fhd\b/i.test(text)) return "1080p";
+  if (/\b720p\b|(?:^|[^\w])720\b/i.test(text)) return "720p";
+  const m = text.match(/(\d{3,4}p)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+export function extractAll(html, left, right) {
+  const results = [];
+  let idx = 0;
+  while (true) {
+    const l = html.indexOf(left, idx);
+    if (l === -1) break;
+    const r = html.indexOf(right, l + left.length);
+    if (r === -1) break;
+    results.push(html.slice(l + left.length, r));
+    idx = r + right.length;
+  }
+  return results;
+}
+
+export function extractBlocks(html, className) {
+  const blocks = [];
+  const re = new RegExp(`<div class="${className}[\\s\\S]*?<\\/div>\\s*<\\/div>`, "g");
+  let m;
+  while ((m = re.exec(html)) !== null) blocks.push(m[0]);
+  return blocks;
+}
+
+export function parseCodec(text) {
+  if (/HEVC|H\.?265/i.test(text)) return "HEVC";
+  if (/H\.?264|AVC/i.test(text)) return "H.264";
+  return "";
+}
+
+export function parseHdr(text) {
+  if (/Dolby\s*Vision|DV[^A-Za-z]|HDR(?:10)?/i.test(text)) return "HDR";
+  return "";
+}
+
+export function linkPriority(url) {
+  if (/r2\.cloudflarestorage|\.(mp4|mkv|avi)(\?|$)/i.test(url)) return 3;
+  if (/pixeldrain/i.test(url)) return 2;
+  return 1;
+}
+
+export async function isSeekable(url, { referer, timeout = 6000 } = {}) {
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: { "User-Agent": UA, Referer: referer, range: "bytes=0-0" },
+    }, timeout);
+    if (!res) return "inconclusive";
+    if (res.status === 206 || res.status === 200) return "ok";
+    return "dead";
+  } catch {
+    return "inconclusive";
+  }
+}
+
+export async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+const domainCache = new Map();
+
+export async function fetchLiveDomains({ domainsUrl, key = "", fallback = [], ttl = 12 * 60 * 60 * 1000 } = {}) {
+  const cached = domainCache.get(domainsUrl);
+  if (cached && Date.now() - cached.ts < ttl && cached.urls.length) return cached.urls;
+  let urls = [];
+  if (domainsUrl) {
+    const res = await fetchWithTimeout(domainsUrl, {
+      headers: { "user-agent": UA, accept: "application/json" },
+    });
+    if (res && res.ok) {
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data)) {
+        urls = data.filter(u => typeof u === "string" && /^https?:/i.test(u));
+      } else if (data && typeof data === "object") {
+        const foundKey = key
+          ? Object.keys(data).find(k => k.toLowerCase().includes(key.toLowerCase()))
+          : null;
+        const val = foundKey ? data[foundKey] : null;
+        const arr = Array.isArray(val) ? val : val ? [val] : [];
+        urls = arr.filter(u => typeof u === "string" && /^https?:/i.test(u));
+      }
+    }
+  }
+  if (!urls.length) urls = fallback.slice();
+  if (urls.length) domainCache.set(domainsUrl, { ts: Date.now(), urls });
+  return urls;
+}
+
 const tmdbCache = new Map();
 
 export async function convertImdbToTmdb(imdbId) {

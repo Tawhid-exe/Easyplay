@@ -63,6 +63,12 @@ export ADDON_NAME="Easyplay (local)"
 termux-wake-lock 2>/dev/null
 nohup node server.mjs > "$LOG_FILE" 2>&1 &
 echo $! > "$PID_FILE"
+PHONE_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+[ -z "$PHONE_IP" ] && PHONE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo "[Easyplay] server started."
-echo "  Add in Stremio:  http://localhost:7000/manifest.json"
+echo "  THIS phone     : add  http://localhost:7000/manifest.json"
+if [ -n "$PHONE_IP" ]; then
+  echo "  OTHER devices  : add  http://$PHONE_IP:7000/manifest.json"
+  echo "                  (TV, PC, other phones - same WiFi)"
+fi
 echo "  Run this script again (or tap the widget) to stop."

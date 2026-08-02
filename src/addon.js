@@ -86,6 +86,15 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
         url: s.url,
         name: globalThis.__addonName || ADDON_NAME,
         title,
+        subtitles: Array.isArray(s.captions)
+          ? s.captions
+              .map((c, i) => ({
+                id: c.id || `sub-${i}`,
+                url: c.url,
+                lang: c.lang || c.label || "English",
+              }))
+              .filter(c => c.url)
+          : undefined,
         behaviorHints: {
           notWebReady: isHls && !isProxy,
           bingeGroup: season ? `scraper-${imdbId}` : undefined,

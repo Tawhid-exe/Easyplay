@@ -1,6 +1,9 @@
 import { STREAMDATA_API_URL, VIDLINK_BASE, ENC_VIDLINK_URL, BATCH_TIMEOUT, VIDAPI_ENABLED } from "./config.js";
 import { tryVixSrc } from "./vixsrc.js";
 import { try4KHDHub } from "./4khdhub.js";
+import { tryHDHub4u } from "./hdhub4u.js";
+import { tryMoviesDrive } from "./moviesdrive.js";
+import { tryHiAnime } from "./hianime.js";
 import { encryptVidlinkToken } from "./vidlink.js";
 import { fetchWithTimeout, chromeHeaders, fetchWithRetry, headers, convertImdbToTmdb, sleep } from "./utils.js";
 import { collectCookies, cookieString } from "./cookies.js";
@@ -291,6 +294,9 @@ export async function scrapeStreams({ type, imdbId, season, episode }, batchTime
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
     { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
+    { name: "HDHub4u", fn: () => tryHDHub4u(imdbId, type, season, episode) },
+    { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
+    { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
   ];
 
   const settled = new Array(sourceFunctions.length).fill(null);
@@ -403,6 +409,9 @@ export async function debugSources({ type, imdbId, season, episode }) {
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
     { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
+    { name: "HDHub4u", fn: () => tryHDHub4u(imdbId, type, season, episode) },
+    { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
+    { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
   ];
 
   const results = [];
