@@ -23,49 +23,58 @@ SHORTCUTS="$HOME/.shortcuts"
 mkdir -p "$SHORTCUTS"
 
 cat > "$SHORTCUTS/start-server.sh" <<'EOF'
-#!/usr/bin/env bash
-termux-wake-lock
-cd "$HOME/Easyplay" || exit 1
-export ADDON_NAME="Easyplay"
+#!/data/data/com.termux/files/usr/bin/bash
+# Easyplay toggle widget - tap to START, tap again to STOP.
 REGISTER_URL="https://easyplay-9id.pages.dev/api/register"
+APP_DIR="$HOME/Easyplay"
+PID_FILE="$HOME/.easyplay.pid"
+TUNNEL_PID_FILE="$HOME/.easyplay-tunnel.pid"
+LOG_FILE="$HOME/.easyplay.log"
+LOG_TUNNEL="$HOME/.easyplay-tunnel.log"
+
+# ---- Stop if already running --------------------------------
+if [ -f "$PID_FILE" ]; then
+  PID=$(cat "$PID_FILE" 2>/dev/null)
+  if kill -0 "$PID" 2>/dev/null; then
+    kill "$PID" 2>/dev/null
+    sleep 1
+    rm -f "$PID_FILE"
+    TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
+    if [ -n "$TUNNEL_PID" ]; then
+      kill "$TUNNEL_PID" 2>/dev/null
+      rm -f "$TUNNEL_PID_FILE"
+    fi
+    curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
+    echo "[Easyplay] server + tunnel stopped (relay will fall back to cloud)."
+    exit 0
+  fi
+  rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
+fi
+
+# ---- Start ---------------------------------------------------
+cd "$APP_DIR" || exit 1
+export ADDON_NAME="Easyplay"
+termux-wake-lock 2>/dev/null
 command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
-
-nohup node server.mjs > "$HOME/.easyplay.log" 2>&1 &
-NODE_PID=$!
-nohup cloudflared tunnel --url http://localhost:7000 > "$HOME/.easyplay-tunnel.log" 2>&1 &
-TUNNEL_PID=$!
-
-echo ""
-echo "=============================================================="
-echo "  Easyplay engine starting..."
-echo "  INSTALL ONCE (any device): https://easyplay-9id.pages.dev/manifest.json"
-echo "=============================================================="
-
+nohup node server.mjs > "$LOG_FILE" 2>&1 &
+echo $! > "$PID_FILE"
+nohup cloudflared tunnel --url http://localhost:7000 > "$LOG_TUNNEL" 2>&1 &
+echo $! > "$TUNNEL_PID_FILE"
 URL=""
 for i in $(seq 1 30); do
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$HOME/.easyplay-tunnel.log" 2>/dev/null | head -n1)
+  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_TUNNEL" 2>/dev/null | head -n1)
   [ -n "$URL" ] && break
   sleep 1
 done
-
+curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=$URL" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
+echo "[Easyplay] server + tunnel started."
+echo "  INSTALL ONCE (any device):  https://easyplay-9id.pages.dev/manifest.json"
 if [ -n "$URL" ]; then
-  curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=$URL" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
-  echo ""
-  echo "  Phone engine online. No addon URL needed -"
-  echo "  the pages.dev addon now relays through:  $URL"
-  echo ""
+  echo "  Phone engine online at:     $URL"
 else
-  echo ""
-  echo "  Tunnel URL not detected yet - check:  cat ~/.easyplay-tunnel.log"
-  echo ""
+  echo "  Tunnel URL not ready - check:  cat ~/.easyplay-tunnel.log"
 fi
-
-echo "  Press Ctrl+C (or close this window) to STOP server + tunnel."
-echo "=============================================================="
-echo ""
-
-trap 'kill $NODE_PID $TUNNEL_PID 2>/dev/null; curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1; exit 0' INT TERM HUP EXIT
-tail -f "$HOME/.easyplay-tunnel.log"
+echo "  Tap the widget again to STOP."
 EOF
 chmod +x "$SHORTCUTS/start-server.sh"
 cp -f "$SHORTCUTS/start-server.sh" "$SHORTCUTS/Easyplay"
@@ -90,7 +99,7 @@ echo " 4. Streams come from this phone while the widget is on."
 echo "    If the phone is off, the relay falls back to cloud-only"
 echo "    (Vidlink) sources automatically."
 echo ""
-echo " Tap the icon to serve. Stop with Ctrl+C or volume-down + C."
+echo " Tap the icon to START, tap it again to STOP."
 echo " Server also auto-stops after 90 min without a stream lookup"
 echo " (override: IDLE_TIMEOUT_MIN=30 node server.mjs)."
 echo "=============================================================="
