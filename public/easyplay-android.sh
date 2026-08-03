@@ -49,31 +49,37 @@ else
 fi
 
 # ---- Toggle: stop if running -------------------------------
-if [ -f "$PID_FILE" ]; then
-  PID=$(cat "$PID_FILE" 2>/dev/null)
-  if kill -0 "$PID" 2>/dev/null; then
-    kill "$PID" 2>/dev/null
-    sleep 1
-    rm -f "$PID_FILE"
-    TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
-    if [ -n "$TUNNEL_PID" ]; then
-      kill "$TUNNEL_PID" 2>/dev/null
-      rm -f "$TUNNEL_PID_FILE"
-    fi
-    # Tell the relay we're offline so it falls back to CF-safe sources.
-    curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
-    echo "[Easyplay] server + tunnel stopped (relay will fall back to cloud)."
-    exit 0
-  fi
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  kill "$(cat "$PID_FILE")" 2>/dev/null
+  TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
+  [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null
+  pkill -f "node server.mjs" 2>/dev/null
+  pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
+  sleep 1
   rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
+  # Tell the relay we're offline so it falls back to CF-safe sources.
+  curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
+  echo "[Easyplay] server + tunnel stopped (relay will fall back to cloud)."
+  exit 0
 fi
+rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
 
 # ---- Start --------------------------------------------------
 export ADDON_NAME="Easyplay"
 termux-wake-lock 2>/dev/null
 command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
+pkill -f "node server.mjs" 2>/dev/null
+pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
+sleep 1
 nohup node server.mjs > "$LOG_FILE" 2>&1 &
-echo $! > "$PID_FILE"
+NODE_PID=$!
+echo $NODE_PID > "$PID_FILE"
+sleep 2
+if ! kill -0 "$NODE_PID" 2>/dev/null; then
+  echo "[Easyplay] engine failed to start - check:  cat ~/.easyplay.log"
+  rm -f "$PID_FILE"
+  exit 1
+fi
 nohup cloudflared tunnel --url http://localhost:7000 > "$LOG_TUNNEL" 2>&1 &
 echo $! > "$TUNNEL_PID_FILE"
 URL=""
