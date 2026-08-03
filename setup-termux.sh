@@ -70,6 +70,7 @@ nohup cloudflared tunnel --url http://localhost:7000 > "$LOG_TUNNEL" 2>&1 &
 echo $! > "$TUNNEL_PID_FILE"
 URL=""
 for i in $(seq 1 30); do
+  [ -f "$PID_FILE" ] || exit 0
   URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_TUNNEL" 2>/dev/null | head -n1)
   [ -n "$URL" ] && break
   sleep 1
@@ -83,6 +84,22 @@ else
   echo "  Tunnel URL not ready - check:  cat ~/.easyplay-tunnel.log"
 fi
 echo "  Tap the widget again to STOP."
+
+# Keep this session alive while the server is on so Android does not
+# reap node when the script exits (this is what keeps it serving).
+# The loop ends when the widget is tapped again (stop branch removes the
+# PID file) or when node stops on its own (idle auto-stop).
+while [ -f "$PID_FILE" ] && kill -0 "$NODE_PID" 2>/dev/null; do
+  sleep 5
+done
+echo "[Easyplay] server ended - tap the widget to start again."
+TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
+[ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null
+pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
+pkill -f "node server.mjs" 2>/dev/null
+rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
+curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
+exit 0
 EOF
 chmod +x "$SHORTCUTS/start-server.sh"
 
