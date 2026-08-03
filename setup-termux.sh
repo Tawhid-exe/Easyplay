@@ -68,6 +68,8 @@ trap 'kill $NODE_PID $TUNNEL_PID 2>/dev/null; curl -s -G -X POST "$REGISTER_URL"
 tail -f "$HOME/.easyplay-tunnel.log"
 EOF
 chmod +x "$SHORTCUTS/start-server.sh"
+cp -f "$SHORTCUTS/start-server.sh" "$SHORTCUTS/Easyplay"
+chmod +x "$SHORTCUTS/Easyplay"
 
 echo ""
 echo "=============================================================="

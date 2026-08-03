@@ -22,15 +22,15 @@ TUNNEL_PID_FILE="$HOME/.easyplay-tunnel.pid"
 LOG_FILE="$HOME/.easyplay.log"
 LOG_TUNNEL="$HOME/.easyplay-tunnel.log"
 
-# ---- Install home-screen widget (one-time) ------------------
-if [ -d "$HOME/.shortcuts" ] && [ ! -f "$HOME/.shortcuts/Easyplay" ]; then
+# ---- Keep the home-screen widget up to date -----------------
+if [ -d "$HOME/.shortcuts" ] && [ "$0" != "$HOME/.shortcuts/Easyplay" ]; then
   if [ -f "$0" ]; then
     cp "$0" "$HOME/.shortcuts/Easyplay"
   else
     curl -sL "$SCRIPT_URL" -o "$HOME/.shortcuts/Easyplay"
   fi
   chmod +x "$HOME/.shortcuts/Easyplay" 2>/dev/null
-  echo "==> Home-screen widget 'Easyplay' installed (Termux:Widget)."
+  echo "==> Home-screen widget 'Easyplay' updated (Termux:Widget)."
 fi
 
 # ---- First-run bootstrap (downloads repo once) --------------
