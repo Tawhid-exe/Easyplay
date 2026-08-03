@@ -14,6 +14,7 @@
 # ============================================================
 
 SCRIPT_URL="https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/public/easyplay-android.sh"
+REGISTER_URL="https://easyplay-9id.pages.dev/api/register"
 
 APP_DIR="$HOME/Easyplay"
 PID_FILE="$HOME/.easyplay.pid"
@@ -59,14 +60,16 @@ if [ -f "$PID_FILE" ]; then
       kill "$TUNNEL_PID" 2>/dev/null
       rm -f "$TUNNEL_PID_FILE"
     fi
-    echo "[Easyplay] server + tunnel stopped."
+    # Tell the relay we're offline so it falls back to CF-safe sources.
+    curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
+    echo "[Easyplay] server + tunnel stopped (relay will fall back to cloud)."
     exit 0
   fi
   rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
 fi
 
 # ---- Start --------------------------------------------------
-export ADDON_NAME="Easyplay (local)"
+export ADDON_NAME="Easyplay"
 termux-wake-lock 2>/dev/null
 command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
 nohup node server.mjs > "$LOG_FILE" 2>&1 &
@@ -79,11 +82,12 @@ for i in $(seq 1 30); do
   [ -n "$URL" ] && break
   sleep 1
 done
+# Publish the current tunnel URL so the stable pages.dev addon can reach us.
+curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=$URL" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
 echo "[Easyplay] server + tunnel started."
-echo "  THIS phone     : add  http://localhost:7000/manifest.json"
+echo "  INSTALL ONCE (any device):  https://easyplay-9id.pages.dev/manifest.json"
 if [ -n "$URL" ]; then
-  echo "  ALL devices    : add  $URL/manifest.json"
-  echo "                  (TV/PC/phones, anywhere - tunnel URL)"
+  echo "  Phone engine online at:     $URL"
 else
   echo "  Tunnel URL not ready - check:  cat ~/.easyplay-tunnel.log"
 fi

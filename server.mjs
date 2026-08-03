@@ -29,11 +29,23 @@ function getLanIp() {
 const lanIp = process.env.HOST_IP || getLanIp();
 globalThis.__proxyOrigin = `http://${lanIp}:${PORT}`;
 globalThis.__tmdbApiKey = process.env.TMDB_API_KEY || TMDB_API_KEY;
-globalThis.__addonName = process.env.ADDON_NAME || "Easyplay (local)";
+globalThis.__addonName = process.env.ADDON_NAME || "Easyplay";
 addonInterface.manifest = { ...addonInterface.manifest, name: globalThis.__addonName };
 
 const app = express();
 app.use(cors());
+
+// Stream/HLS URLs are rewritten against the origin the client actually used.
+// LAN clients get the LAN IP; tunnel clients (cloudflared/tailscale) get the
+// public https host so remote devices can fetch the HLS proxy too.
+app.use((req, _res, next) => {
+  const host = req.headers.host || `${lanIp}:${PORT}`;
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const isTunnelHost = host.includes("trycloudflare.com") || host.endsWith(".ts.net");
+  const proto = isTunnelHost ? "https" : forwardedProto === "https" ? "https" : "http";
+  globalThis.__proxyOrigin = `${proto}://${host}`;
+  next();
+});
 
 app.get("/resolve", async (req, res) => {
   const d = req.query.d;

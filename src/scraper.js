@@ -288,8 +288,12 @@ async function tryVidlink(imdbId, type, season, episode) {
   }
 }
 
-export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = BATCH_TIMEOUT) {
-  const sourceFunctions = [
+// When running on Cloudflare (phone offline), only these sources are reachable
+// from CF datacenter IPs. Every other source blocks or silently rejects them.
+const CF_SAFE_SOURCES = new Set(["Vidlink"]);
+
+function buildSourceFunctions(imdbId, type, season, episode) {
+  const all = [
     { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
     { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
     { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
@@ -298,6 +302,11 @@ export async function scrapeStreams({ type, imdbId, season, episode }, batchTime
     { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
     { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
   ];
+  return globalThis.__cfSafeOnly ? all.filter(s => CF_SAFE_SOURCES.has(s.name)) : all;
+}
+
+export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = BATCH_TIMEOUT) {
+  const sourceFunctions = buildSourceFunctions(imdbId, type, season, episode);
 
   const settled = new Array(sourceFunctions.length).fill(null);
   const promises = sourceFunctions.map((sf, i) =>
@@ -404,15 +413,7 @@ async function probeVixsrc(imdbId, type, season, episode) {
 }
 
 export async function debugSources({ type, imdbId, season, episode }) {
-  const sourceFunctions = [
-    { name: "VidAPI", fn: () => tryVidApiDirect(imdbId, type, season, episode) },
-    { name: "Vidlink", fn: () => tryVidlink(imdbId, type, season, episode) },
-    { name: "VixSrc", fn: () => tryVixSrc(imdbId, type, season, episode) },
-    { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
-    { name: "HDHub4u", fn: () => tryHDHub4u(imdbId, type, season, episode) },
-    { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
-    { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
-  ];
+  const sourceFunctions = buildSourceFunctions(imdbId, type, season, episode);
 
   const results = [];
   for (const sf of sourceFunctions) {
@@ -444,8 +445,10 @@ export async function debugSources({ type, imdbId, season, episode }) {
     probeVidlink(imdbId, type, season, episode),
     probeVixsrc(imdbId, type, season, episode),
   ]);
-  results[1].vidlinkProbe = vidlinkProbe;
-  results[2].vixsrcProbe = vixsrcProbe;
+  const vidlinkResult = results.find(r => r.source === "Vidlink");
+  const vixsrcResult = results.find(r => r.source === "VixSrc");
+  if (vidlinkResult) vidlinkResult.vidlinkProbe = vidlinkProbe;
+  if (vixsrcResult) vixsrcResult.vixsrcProbe = vixsrcProbe;
 
   return results;
 }

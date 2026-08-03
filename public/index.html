@@ -33,7 +33,8 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
 
   <div class="section-title">Install</div>
   <p style="font-size:13px;color:#999;margin-bottom:8px">
-    Open Stremio → Addons → paste this URL:
+    Install this URL ONCE - it never changes. Streams are powered by your phone
+    when the Easyplay widget is on, and fall back to cloud sources when it's off:
   </p>
   <div class="url-row">
     <code id="manifestUrl">loading...</code>
@@ -44,9 +45,11 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     <a class="btn btn-primary" id="installLink" href="#">Install in Stremio</a>
   </p>
 
-  <div class="section-title">Local Server (backup)</div>
+  <div class="section-title">Phone Engine</div>
   <p style="font-size:13px;color:#999;margin-bottom:8px">
-    Run your own copy on a residential IP as a backup if the cloud host ever gets IP-blocked:
+    Your phone (Android/Termux) runs the scraper on your residential IP so
+    sources that block Cloudflare work too. One tap on the home-screen widget
+    starts it and tells this page where to relay:
   </p>
   <div class="url-row" style="flex-direction:column;align-items:stretch;gap:10px">
     <button class="btn btn-primary" id="cmdBtn" type="button">Copy Termux command</button>
@@ -55,9 +58,9 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     <span id="cmd-copied-msg" style="color:#4ade80;font-size:13px;display:none">Copied!</span>
   </div>
   <p style="font-size:12px;color:#777;margin-top:10px">
-    Android (Termux): tap "Copy Termux command", paste it in Termux — it installs a
-    home-screen widget once; tap the widget to start/stop the server (first run downloads
-    the repo once). Download the .sh for offline use. Windows: double-click the .bat.
+    Android (Termux): tap "Copy Termux command", paste it in Termux - it installs a
+    home-screen widget once; tap the widget to start/stop the engine. Download the
+    .sh for offline use. Windows: double-click the .bat. No addon re-install needed.
   </p>
 
   <div class="section-title">Quality Settings</div>

@@ -2,5 +2,14 @@ name = "stremio-scraper-addon"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "public"
 
+# EASYPLAY_KV - bind in the Cloudflare dashboard:
+#   Pages > easyplay-9id > Settings > Functions > KV namespace bindings
+#   Variable name: EASYPLAY_KV   (namespace: the one you create)
+# REGISTER_TOKEN - optional secret binding; the phone widget must then pass
+#   the same token when publishing its tunnel URL.
+[[kv_namespaces]]
+binding = "EASYPLAY_KV"
+id = "f8aadade16e2474a90e856a57fe19b27"
+
 # TMDB_API_KEY - set via Cloudflare Dashboard > Environment Variables
 # For local dev: create a .env file with TMDB_API_KEY=your_key_here

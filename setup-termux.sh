@@ -26,7 +26,8 @@ cat > "$SHORTCUTS/start-server.sh" <<'EOF'
 #!/usr/bin/env bash
 termux-wake-lock
 cd "$HOME/Easyplay" || exit 1
-export ADDON_NAME="Easyplay (local)"
+export ADDON_NAME="Easyplay"
+REGISTER_URL="https://easyplay-9id.pages.dev/api/register"
 command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
 
 nohup node server.mjs > "$HOME/.easyplay.log" 2>&1 &
@@ -36,8 +37,8 @@ TUNNEL_PID=$!
 
 echo ""
 echo "=============================================================="
-echo "  Easyplay + tunnel starting..."
-echo "  THIS phone    : add  http://localhost:7000/manifest.json"
+echo "  Easyplay engine starting..."
+echo "  INSTALL ONCE (any device): https://easyplay-9id.pages.dev/manifest.json"
 echo "=============================================================="
 
 URL=""
@@ -48,9 +49,10 @@ for i in $(seq 1 30); do
 done
 
 if [ -n "$URL" ]; then
+  curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=$URL" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
   echo ""
-  echo "  ALL devices (TV/PC/phones, anywhere):"
-  echo "      add  $URL/manifest.json"
+  echo "  Phone engine online. No addon URL needed -"
+  echo "  the pages.dev addon now relays through:  $URL"
   echo ""
 else
   echo ""
@@ -62,7 +64,7 @@ echo "  Press Ctrl+C (or close this window) to STOP server + tunnel."
 echo "=============================================================="
 echo ""
 
-trap 'kill $NODE_PID $TUNNEL_PID 2>/dev/null; exit 0' INT TERM HUP EXIT
+trap 'kill $NODE_PID $TUNNEL_PID 2>/dev/null; curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1; exit 0' INT TERM HUP EXIT
 tail -f "$HOME/.easyplay-tunnel.log"
 EOF
 chmod +x "$SHORTCUTS/start-server.sh"
@@ -75,16 +77,16 @@ echo " 1. Disable battery optimization for Termux:"
 echo "      Settings > Apps > Termux > Battery > Unrestricted"
 echo " 2. Home screen: long-press empty area > Widgets >"
 echo "      Termux:Widget > tap 'start-server.sh'"
-echo "    The widget starts the server + a free Cloudflare tunnel"
-echo "    and prints your URLs when ready."
+echo "    The widget starts the scraper engine + a free Cloudflare"
+echo "    tunnel and publishes the current tunnel URL to the relay."
 echo ""
-echo " 3. Stremio on THIS phone: Add-ons > Add external addon:"
-echo "      http://localhost:7000/manifest.json"
+echo " 3. Install the addon ONCE (any device, including this phone):"
+echo "      https://easyplay-9id.pages.dev/manifest.json"
+echo "    That URL never changes - no re-install needed, ever."
 echo ""
-echo " 4. ALL other devices (TV/PC/phones, even outside WiFi):"
-echo "      add the https://xxxxx.trycloudflare.com/manifest.json"
-echo "      URL that the widget prints. This URL changes every"
-echo "      time you tap the widget, so re-add it if it changes."
+echo " 4. Streams come from this phone while the widget is on."
+echo "    If the phone is off, the relay falls back to cloud-only"
+echo "    (Vidlink) sources automatically."
 echo ""
 echo " Tap the icon to serve. Stop with Ctrl+C or volume-down + C."
 echo " Server also auto-stops after 90 min without a stream lookup"
