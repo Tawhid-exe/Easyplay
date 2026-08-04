@@ -1,11 +1,11 @@
 @echo off
 rem ============================================================
-rem  Easyplay - one-click engine for Windows
+rem  Easyplay - one-click engine for Windows (run from the repo)
 rem
 rem  Double-click this file to START the engine, double-click it
 rem  again to STOP.
 rem
-rem  It runs the scraper on your PC and relays it through a free
+rem  It runs the scraper on this PC and relays it through a free
 rem  Cloudflare tunnel to the stable addon URL - so every device
 rem  installs ONE URL that never changes:
 rem
@@ -16,8 +16,8 @@ rem ============================================================
 setlocal
 title Easyplay engine (port 7000)
 
-set "APP_DIR=%USERPROFILE%\Easyplay"
-set "CF=%APP_DIR%\cloudflared.exe"
+set "APP_DIR=%~dp0"
+set "CF=%APP_DIR%cloudflared.exe"
 set "NODE_PID_FILE=%TEMP%\easyplay-node.pid"
 set "TUNNEL_PID_FILE=%TEMP%\easyplay-tunnel.pid"
 set "SERVER_LOG=%TEMP%\easyplay-server.log"
@@ -53,23 +53,10 @@ exit /b 0
 
 :bootstrap
 del /q "%NODE_PID_FILE%" "%TUNNEL_PID_FILE%" >nul 2>nul
-
-rem ---- Download Easyplay once ---------------------------------
-if not exist "%APP_DIR%" (
-  echo [1/4] Downloading Easyplay...
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; $z='%TEMP%\easyplay.zip'; $x='%TEMP%\easyplay-extract'; if (Test-Path $x) { Remove-Item $x -Recurse -Force }; Invoke-WebRequest -Uri 'https://github.com/Tawhid-exe/Easyplay/archive/refs/heads/main.zip' -OutFile $z; Expand-Archive -Path $z -DestinationPath $x -Force; Move-Item -Path (Join-Path $x 'Easyplay-main') -Destination '%APP_DIR%' -Force; Remove-Item $z -Force"
-  if errorlevel 1 (
-    echo [ERROR] Download failed. Check your internet connection.
-    echo         If the folder is incomplete, delete "%APP_DIR%" and retry.
-    pause
-    exit /b 1
-  )
-)
-
 cd /d "%APP_DIR%"
 
 if not exist node_modules (
-  echo [2/4] Installing dependencies...
+  echo [1/3] Installing dependencies...
   call npm install --omit=dev
   if errorlevel 1 (
     echo [ERROR] npm install failed.
@@ -89,10 +76,8 @@ if not exist "%CF%" (
   )
 )
 
-for /f "delims=" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue|?{$_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254*'};$p=@($c|?{$_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' -or $_.IPAddress -match '^172\.(1[6-9]|2[0-9]|3[01])\.'})[0];if(-not $p){$p=@($c)[0]};if($p){$p.IPAddress}"') do set "LAN_IP=%%i"
-
 rem ---- Start engine (background) ------------------------------
-echo [3/4] Starting engine...
+echo [2/3] Starting engine...
 set "ADDON_NAME=Easyplay"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath 'node' -ArgumentList 'server.mjs' -WorkingDirectory '%APP_DIR%' -RedirectStandardOutput '%SERVER_LOG%' -RedirectStandardError '%SERVER_ERR%' -WindowStyle Hidden -PassThru; Set-Content -LiteralPath '%NODE_PID_FILE%' -Value $p.Id"
 timeout /t 2 /nobreak >nul
@@ -118,7 +103,7 @@ set "TUNNEL_URL="
 for /f "delims=" %%u in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$f='%TUNNEL_ERR%'; for($i=0;$i -lt 60;$i++){ $c=Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue; $m=[regex]::Match($c,'https://[a-z0-9.-]+\.trycloudflare\.com'); if($m.Success){ $m.Value; exit }; Start-Sleep -Seconds 1 }"') do set "TUNNEL_URL=%%u"
 
 rem ---- Register with the relay --------------------------------
-echo [4/4] Registering engine with relay...
+echo [3/3] Registering engine with relay...
 if defined TUNNEL_URL (
   powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='%TUNNEL_URL%'; $t=[string]$env:REGISTER_TOKEN; Invoke-WebRequest -Uri ('%REGISTER_URL%?url='+[uri]::EscapeDataString($u)+'&token='+[uri]::EscapeDataString($t)) -Method Post -UseBasicParsing -TimeoutSec 20 | Out-Null" >nul 2>nul
 ) else (
@@ -130,16 +115,9 @@ echo  ==========================================================
 echo   INSTALL ONCE (any device) - never changes:
 echo     https://easyplay-9id.pages.dev/manifest.json
 echo.
-echo   Local URLs (same network, optional):
-echo     This PC : http://localhost:7000/manifest.json
-if defined LAN_IP (
-  echo     Phone   : http://%LAN_IP%:7000/manifest.json
-)
 if defined TUNNEL_URL (
-  echo.
-  echo   PC engine online at:  %TUNNEL_URL%
+  echo   This PC engine online at:  %TUNNEL_URL%
 ) else (
-  echo.
   echo   [WARNING] Tunnel URL not ready - check: %TUNNEL_ERR%
 )
 echo.
