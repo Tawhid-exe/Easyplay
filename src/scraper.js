@@ -187,8 +187,13 @@ function kvCacheWrite(cacheKey, streams) {
     const kv = globalThis.__kv;
     if (!kv || !Array.isArray(streams) || !streams.length) return;
     const p = kv.put(kvCacheKey(cacheKey), JSON.stringify(streams), { expirationTtl: VLK_CACHE_TTL_SEC });
-    if (typeof globalThis.__waitUntil === "function") globalThis.__waitUntil(p.catch(() => {}));
-    else p.catch(() => {});
+    if (globalThis.__cfSafeOnly) {
+      const queue = globalThis.__pendingKvPuts;
+      if (Array.isArray(queue)) queue.push(p);
+      else p.catch(() => {});
+    } else {
+      p.catch(() => {});
+    }
   } catch {}
 }
 

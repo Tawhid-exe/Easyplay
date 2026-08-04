@@ -108,7 +108,7 @@ export async function handleStream(context, prefixConfigRaw) {
   globalThis.__tmdbApiKey = context.env?.TMDB_API_KEY || TMDB_API_KEY;
   globalThis.__cfSafeOnly = true;
   globalThis.__kv = context.env?.EASYPLAY_KV || null;
-  globalThis.__waitUntil = typeof context.waitUntil === "function" ? context.waitUntil.bind(context) : null;
+  globalThis.__pendingKvPuts = [];
 
   const config = {
     ...readQualityConfig(context.request),
@@ -125,6 +125,11 @@ export async function handleStream(context, prefixConfigRaw) {
   } catch (err) {
     streams = [];
     error = err.message || String(err);
+  }
+  const pending = globalThis.__pendingKvPuts || [];
+  globalThis.__pendingKvPuts = [];
+  for (const p of pending) {
+    try { context.waitUntil(p.catch(() => {})); } catch {}
   }
   const fixed = streams.map(s => ({
     ...s,
