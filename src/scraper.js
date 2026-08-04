@@ -130,8 +130,10 @@ async function tryVidApiDirect(imdbId, type, season, episode) {
 
 const vidlinkStreamCache = new Map();
 const vidlinkEncCache = new Map();
-const VIDLINK_STREAM_TTL = 5 * 60 * 1000;
+const VIDLINK_STREAM_TTL = 60 * 60 * 1000;
 const VIDLINK_ENC_TTL = 3 * 60 * 1000;
+const VIDLINK_COOLDOWN_MS = 3 * 60 * 1000;
+let vidlinkCooldownUntil = 0;
 const VIDLINK_LINK_MAX_AGE = 72 * 3600 * 1000;
 const VIDLINK_LIMIT_CAPTION = "Limit reached - link expired, will refresh later";
 
@@ -204,17 +206,6 @@ async function getVidlinkEncodedId(tmdbId, preferEncDec = false) {
   return encoded;
 }
 
-async function probeStreamUrl(url, referer) {
-  const res = await fetchWithTimeout(url, {
-    headers: {
-      ...chromeHeaders({ referer, mode: "api" }),
-      range: "bytes=0-0",
-    },
-  }, 4000);
-  if (!res) return false;
-  return res.status === 200 || res.status === 206 || res.status === 304;
-}
-
 async function tryVidlink(imdbId, type, season, episode) {
   const cacheKey = `${type}:${imdbId}:${season ?? ""}:${episode ?? ""}`;
   const cached = cacheGet(vidlinkStreamCache, cacheKey);
@@ -228,7 +219,7 @@ async function tryVidlink(imdbId, type, season, episode) {
       const apiUrl = type === "series"
         ? `${VIDLINK_BASE}/api/b/tv/${enc}/${season}/${episode}?multiLang=0`
         : `${VIDLINK_BASE}/api/b/movie/${enc}?multiLang=0`;
-      return fetchWithRetry(apiUrl, {
+      return fetchWithTimeout(apiUrl, {
         headers: chromeHeaders({ referer: VIDLINK_BASE, origin: VIDLINK_BASE, mode: "api", site: "same-origin" }),
       });
     };
@@ -236,14 +227,29 @@ async function tryVidlink(imdbId, type, season, episode) {
     const encoded = await getVidlinkEncodedId(tmdb.id);
     if (!encoded) return null;
 
+    if (vidlinkCooldownUntil && Date.now() < vidlinkCooldownUntil) return null;
+
     let res = await fetchVidlink(encoded);
+    if (res && res.status === 429) {
+      vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
+      console.error(`[scraper] vidlink api 429 - cooldown ${VIDLINK_COOLDOWN_MS / 60000}min`);
+      return null;
+    }
     if (!res || !res.ok) {
       const fallbackEnc = await getVidlinkEncodedId(tmdb.id, true);
       if (fallbackEnc && fallbackEnc !== encoded) {
         res = await fetchVidlink(fallbackEnc);
+        if (res && res.status === 429) {
+          vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
+          console.error(`[scraper] vidlink api 429 - cooldown ${VIDLINK_COOLDOWN_MS / 60000}min`);
+          return null;
+        }
       }
     }
-    if (!res || !res.ok) return null;
+    if (!res || !res.ok) {
+      console.error(`[scraper] vidlink api ${res ? res.status : "no response"}`);
+      return null;
+    }
 
     const data = await res.json();
     const streamData = data?.stream;
@@ -267,10 +273,7 @@ async function tryVidlink(imdbId, type, season, episode) {
         });
       }
       if (entries.length) {
-        const probes = await Promise.all(entries.map(e => probeStreamUrl(e.url, VIDLINK_BASE + "/")));
-        const passing = entries.filter((_, i) => probes[i]);
-        const chosen = passing.length ? passing : entries;
-        streams = chosen.map(e => {
+        streams = entries.map(e => {
           const note = vidlinkLinkNote(e.url);
           return {
             url: e.needsProxy ? buildProxyUrl(e.url, VIDLINK_BASE + "/") : e.url,
