@@ -132,6 +132,16 @@ const vidlinkStreamCache = new Map();
 const vidlinkEncCache = new Map();
 const VIDLINK_STREAM_TTL = 5 * 60 * 1000;
 const VIDLINK_ENC_TTL = 3 * 60 * 1000;
+const VIDLINK_LINK_MAX_AGE = 72 * 3600 * 1000;
+const VIDLINK_LIMIT_CAPTION = "Limit reached - link expired, will refresh later";
+
+function vidlinkLinkNote(url) {
+  const m = url && url.match(/t=(\d{9,})/);
+  if (!m) return undefined;
+  const issued = Number(m[1]) * 1000;
+  if (!Number.isFinite(issued)) return undefined;
+  return Date.now() - issued > VIDLINK_LINK_MAX_AGE ? VIDLINK_LIMIT_CAPTION : undefined;
+}
 
 function cacheGet(map, key) {
   const hit = map.get(key);
@@ -260,17 +270,27 @@ async function tryVidlink(imdbId, type, season, episode) {
         const probes = await Promise.all(entries.map(e => probeStreamUrl(e.url, VIDLINK_BASE + "/")));
         const passing = entries.filter((_, i) => probes[i]);
         const chosen = passing.length ? passing : entries;
-        streams = chosen.map(e => ({
-          url: e.needsProxy ? buildProxyUrl(e.url, VIDLINK_BASE + "/") : e.url,
-          quality: e.quality,
-          referer: VIDLINK_BASE + "/",
-          ...(e.headerObj && !e.needsProxy ? { headers: e.headerObj } : {}),
-        }));
+        streams = chosen.map(e => {
+          const note = vidlinkLinkNote(e.url);
+          return {
+            url: e.needsProxy ? buildProxyUrl(e.url, VIDLINK_BASE + "/") : e.url,
+            quality: e.quality,
+            referer: VIDLINK_BASE + "/",
+            ...(e.headerObj && !e.needsProxy ? { headers: e.headerObj } : {}),
+            ...(note ? { note } : {}),
+          };
+        });
       }
     } else {
       const playlist = streamData.playlist || streamData.stream || streamData.url || streamData.sourceId;
       if (playlist) {
-        streams = [{ url: playlist, quality: "Auto", referer: VIDLINK_BASE + "/" }];
+        const note = vidlinkLinkNote(playlist);
+        streams = [{
+          url: playlist,
+          quality: "Auto",
+          referer: VIDLINK_BASE + "/",
+          ...(note ? { note } : {}),
+        }];
       }
     }
 

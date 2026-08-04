@@ -86,6 +86,7 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
         url: s.url,
         name: globalThis.__addonName || ADDON_NAME,
         title,
+        ...(s.note ? { description: s.note } : {}),
         subtitles: Array.isArray(s.captions)
           ? s.captions
               .map((c, i) => ({
