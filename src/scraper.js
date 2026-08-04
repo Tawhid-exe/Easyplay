@@ -163,6 +163,35 @@ function cacheSet(map, key, value, ttl) {
   map.set(key, { ts: Date.now(), ttl, value });
 }
 
+const VLK_CACHE_TTL_SEC = 12 * 3600;
+
+function kvCacheKey(cacheKey) {
+  return "vlk:" + cacheKey;
+}
+
+async function kvCacheRead(cacheKey) {
+  try {
+    const kv = globalThis.__kv;
+    if (!kv) return null;
+    const raw = await kv.get(kvCacheKey(cacheKey), "text");
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function kvCacheWrite(cacheKey, streams) {
+  try {
+    const kv = globalThis.__kv;
+    if (!kv || !Array.isArray(streams) || !streams.length) return;
+    const p = kv.put(kvCacheKey(cacheKey), JSON.stringify(streams), { expirationTtl: VLK_CACHE_TTL_SEC });
+    if (typeof globalThis.__waitUntil === "function") globalThis.__waitUntil(p.catch(() => {}));
+    else p.catch(() => {});
+  } catch {}
+}
+
 function buildProxyUrl(targetUrl, referer, cookie) {
   const proxyOrigin = globalThis.__proxyOrigin || "http://localhost:8788";
   const proxyUrl = new URL("/proxy/hls/stream.m3u8", proxyOrigin);
@@ -211,6 +240,8 @@ async function tryVidlink(imdbId, type, season, episode) {
   const cached = cacheGet(vidlinkStreamCache, cacheKey);
   if (cached) return cached;
 
+  const onCf = !!globalThis.__cfSafeOnly;
+
   try {
     const tmdb = await convertImdbToTmdb(imdbId);
     if (!tmdb) return null;
@@ -227,33 +258,33 @@ async function tryVidlink(imdbId, type, season, episode) {
     const encoded = await getVidlinkEncodedId(tmdb.id);
     if (!encoded) return null;
 
-    if (vidlinkCooldownUntil && Date.now() < vidlinkCooldownUntil) return null;
+    if (!onCf && vidlinkCooldownUntil && Date.now() < vidlinkCooldownUntil) return null;
 
     let res = await fetchVidlink(encoded);
     if (res && res.status === 429) {
-      vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
+      if (!onCf) vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
       console.error(`[scraper] vidlink api 429 - cooldown ${VIDLINK_COOLDOWN_MS / 60000}min`);
-      return null;
+      return kvCacheRead(cacheKey);
     }
     if (!res || !res.ok) {
       const fallbackEnc = await getVidlinkEncodedId(tmdb.id, true);
       if (fallbackEnc && fallbackEnc !== encoded) {
         res = await fetchVidlink(fallbackEnc);
         if (res && res.status === 429) {
-          vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
+          if (!onCf) vidlinkCooldownUntil = Date.now() + VIDLINK_COOLDOWN_MS;
           console.error(`[scraper] vidlink api 429 - cooldown ${VIDLINK_COOLDOWN_MS / 60000}min`);
-          return null;
+          return kvCacheRead(cacheKey);
         }
       }
     }
     if (!res || !res.ok) {
       console.error(`[scraper] vidlink api ${res ? res.status : "no response"}`);
-      return null;
+      return kvCacheRead(cacheKey);
     }
 
     const data = await res.json();
     const streamData = data?.stream;
-    if (!streamData) return null;
+    if (!streamData) return kvCacheRead(cacheKey);
 
     const corsAllowed = Array.isArray(streamData.flags) && streamData.flags.includes("cors-allowed");
     const captions = Array.isArray(streamData.captions) ? streamData.captions : undefined;
@@ -297,17 +328,18 @@ async function tryVidlink(imdbId, type, season, episode) {
       }
     }
 
-    if (!streams || !streams.length) return null;
+    if (!streams || !streams.length) return kvCacheRead(cacheKey);
 
     if (captions) {
       for (const s of streams) s.captions = captions;
     }
 
     cacheSet(vidlinkStreamCache, cacheKey, streams, VIDLINK_STREAM_TTL);
+    kvCacheWrite(cacheKey, streams);
     return streams;
   } catch (err) {
     console.error(`[scraper] vidlink error:`, err.message);
-    return null;
+    return kvCacheRead(cacheKey);
   }
 }
 

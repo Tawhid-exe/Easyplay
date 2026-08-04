@@ -107,6 +107,8 @@ export async function handleStream(context, prefixConfigRaw) {
   globalThis.__proxyOrigin = origin;
   globalThis.__tmdbApiKey = context.env?.TMDB_API_KEY || TMDB_API_KEY;
   globalThis.__cfSafeOnly = true;
+  globalThis.__kv = context.env?.EASYPLAY_KV || null;
+  globalThis.__waitUntil = typeof context.waitUntil === "function" ? context.waitUntil.bind(context) : null;
 
   const config = {
     ...readQualityConfig(context.request),
@@ -114,10 +116,26 @@ export async function handleStream(context, prefixConfigRaw) {
     ...readQueryConfig(url),
   };
   logRequest(context, { handledBy: "fallback", configPrefix: !!prefixConfigRaw });
-  const { streams } = await addonInterface.get("stream", type, cleanId, {}, config);
+  const started = Date.now();
+  let streams = [];
+  let error = null;
+  try {
+    const result = await addonInterface.get("stream", type, cleanId, {}, config);
+    streams = result?.streams || [];
+  } catch (err) {
+    streams = [];
+    error = err.message || String(err);
+  }
   const fixed = streams.map(s => ({
     ...s,
     url: s.url.startsWith("/") ? origin + s.url : s.url,
   }));
+  logRequest(context, {
+    handledBy: "fallback",
+    configPrefix: !!prefixConfigRaw,
+    streamsFound: fixed.length,
+    durationMs: Date.now() - started,
+    error,
+  });
   return jsonResponse({ streams: fixed });
 }
