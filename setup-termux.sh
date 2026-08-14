@@ -71,7 +71,7 @@ echo $! > "$TUNNEL_PID_FILE"
 URL=""
 for i in $(seq 1 30); do
   [ -f "$PID_FILE" ] || exit 0
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_TUNNEL" 2>/dev/null | head -n1)
+  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_TUNNEL" 2>/dev/null | grep -v 'https://api\.trycloudflare\.com' | head -n1)
   [ -n "$URL" ] && break
   sleep 1
 done

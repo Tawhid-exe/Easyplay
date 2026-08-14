@@ -1,6 +1,13 @@
 import { jsonResponse, handleOptions } from "../../src/cors.js";
 
 const ALLOWED_HOST = /\.(trycloudflare\.com|ts\.net)$/i;
+const BLOCKED_HOST = /^api\./i;
+
+function isAllowedHost(hostname) {
+  if (!ALLOWED_HOST.test(hostname)) return false;
+  if (BLOCKED_HOST.test(hostname)) return false;
+  return true;
+}
 
 function cleanUrl(value) {
   if (typeof value !== "string") return null;
@@ -9,7 +16,7 @@ function cleanUrl(value) {
   if (!/^https:\/\//i.test(v)) return null;
   try {
     const u = new URL(v);
-    return ALLOWED_HOST.test(u.hostname) ? u.origin + u.pathname.replace(/\/+$/, "") : null;
+    return isAllowedHost(u.hostname) ? u.origin + u.pathname.replace(/\/+$/, "") : null;
   } catch {
     return null;
   }
