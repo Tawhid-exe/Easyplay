@@ -53,6 +53,18 @@ export const HIANIME_API_BASES = (env.HIANIME_API_BASES || "")
   .concat([HIANIME_API_BASE, "https://hianime-api-iy4s.onrender.com"]);
 export const HIANIME_REFERER = "https://hianime.to/";
 
+// Castle: encrypted JSON API (api.hlowb.com) powering the Castle app. API-based,
+// so it also works from Cloudflare datacenter IPs. Responses are AES-CBC encrypted.
+export const CASTLE_ENABLED = boolEnv("CASTLE_ENABLED", true);
+export const CASTLE_API_BASE = env.CASTLE_API_BASE || "https://api.hlowb.com";
+
+// VegaMovies: WordPress index site (Bollywood/Hollywood + series). Domains rotate,
+// live list fetched from the same community JSON MoviesDrive uses.
+export const VEGAMOVIES_ENABLED = boolEnv("VEGAMOVIES_ENABLED", true);
+export const VEGAMOVIES_BASE_URLS = ["https://new1.vegamovies.futbol"];
+export const VEGAMOVIES_DOMAINS_URL = "https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json";
+export const VEGAMOVIES_DOMAINS_KEY = "vegamovies";
+
 export const ADDON_ID = "org.custom.scraper";
 export const ADDON_NAME = (typeof process !== "undefined" && process.env && process.env.ADDON_NAME) || "Easyplay";
 export const ADDON_DESCRIPTION = "Fetches streams from multiple sources with HLS proxy support";
@@ -66,4 +78,6 @@ export const SOURCE_NAMES = {
   hdhub4u: "HDHub4u",
   moviesdrive: "MoviesDrive",
   hianime: "HiAnime",
+  castle: "Castle",
+  vegamovies: "VegaMovies",
   };

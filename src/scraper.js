@@ -4,6 +4,8 @@ import { try4KHDHub } from "./4khdhub.js";
 import { tryHDHub4u } from "./hdhub4u.js";
 import { tryMoviesDrive } from "./moviesdrive.js";
 import { tryHiAnime } from "./hianime.js";
+import { tryCastle } from "./castle.js";
+import { tryVegaMovies } from "./vegamovies.js";
 import { encryptVidlinkToken } from "./vidlink.js";
 import { fetchWithTimeout, chromeHeaders, fetchWithRetry, headers, convertImdbToTmdb, sleep } from "./utils.js";
 import { collectCookies, cookieString } from "./cookies.js";
@@ -350,7 +352,7 @@ async function tryVidlink(imdbId, type, season, episode) {
 
 // When running on Cloudflare (phone offline), only these sources are reachable
 // from CF datacenter IPs. Every other source blocks or silently rejects them.
-const CF_SAFE_SOURCES = new Set(["Vidlink"]);
+const CF_SAFE_SOURCES = new Set(["Vidlink", "Castle"]);
 
 function buildSourceFunctions(imdbId, type, season, episode) {
   const all = [
@@ -361,8 +363,13 @@ function buildSourceFunctions(imdbId, type, season, episode) {
     { name: "HDHub4u", fn: () => tryHDHub4u(imdbId, type, season, episode) },
     { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
     { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
+    { name: "Castle", fn: () => tryCastle(imdbId, type, season, episode) },
+    { name: "VegaMovies", fn: () => tryVegaMovies(imdbId, type, season, episode) },
   ];
-  return globalThis.__cfSafeOnly ? all.filter(s => CF_SAFE_SOURCES.has(s.name)) : all;
+  if (globalThis.__cfSafeOnly) return all.filter(s => CF_SAFE_SOURCES.has(s.name));
+  const vidlink = all.find(s => s.name === "Vidlink");
+  const rest = all.filter(s => s.name !== "Vidlink");
+  return vidlink ? [...rest, vidlink] : all;
 }
 
 export async function scrapeStreams({ type, imdbId, season, episode }, batchTimeout = BATCH_TIMEOUT) {
