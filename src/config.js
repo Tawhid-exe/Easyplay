@@ -65,6 +65,11 @@ export const VEGAMOVIES_BASE_URLS = ["https://new1.vegamovies.futbol"];
 export const VEGAMOVIES_DOMAINS_URL = "https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json";
 export const VEGAMOVIES_DOMAINS_KEY = "vegamovies";
 
+// MovieBox: Android app API (HMAC-MD5 signed requests). Host pool for failover.
+export const MOVIEBOX_ENABLED = boolEnv("MOVIEBOX_ENABLED", true);
+export const MOVIEBOX_SECRET = env.MOVIEBOX_SECRET || "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
+export const MOVIEBOX_HOSTS = env.MOVIEBOX_HOSTS || "api.inmoviebox.com,api6.aoneroom.com,api5.aoneroom.com,api4.aoneroom.com,api3.aoneroom.com";
+
 export const ADDON_ID = "org.custom.scraper";
 export const ADDON_NAME = (typeof process !== "undefined" && process.env && process.env.ADDON_NAME) || "Easyplay";
 export const ADDON_DESCRIPTION = "Fetches streams from multiple sources with HLS proxy support";
@@ -80,4 +85,5 @@ export const SOURCE_NAMES = {
   hianime: "HiAnime",
   castle: "Castle",
   vegamovies: "VegaMovies",
+  moviebox: "MovieBox",
   };
