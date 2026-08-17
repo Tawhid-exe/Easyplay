@@ -85,6 +85,11 @@ export function logRequest(context, extra) {
   } catch {}
 }
 
+function recordRelayAttempt(kv, waitUntil, data) {
+  if (!kv || !waitUntil) return;
+  waitUntil(kv.put("last_relay", JSON.stringify(data), { expirationTtl: 7 * 24 * 60 * 60 }).catch(() => {}));
+}
+
 export async function handleStream(context, prefixConfigRaw) {
   const { type, id } = context.params;
   const cleanId = decodeURIComponent(String(id)).replace(/\.json$/, "");
@@ -97,10 +102,15 @@ export async function handleStream(context, prefixConfigRaw) {
   if (phoneUrl) {
     try {
       const streams = await relayToPhone(phoneUrl, url, context.request);
-      logRequest(context, { handledBy: "relay", configPrefix: !!prefixConfigRaw });
-      return jsonResponse({ streams: rewriteForRemote(streams, phoneUrl) });
+      const rewritten = rewriteForRemote(streams, phoneUrl);
+      logRequest(context, { handledBy: "relay", configPrefix: !!prefixConfigRaw, streamsFound: rewritten.length });
+      recordRelayAttempt(kv, context.waitUntil, { ts: Date.now(), ok: true, streamsFound: rewritten.length, phoneUrl });
+      return jsonResponse({ streams: rewritten });
     } catch (err) {
       console.error(`[stream] relay failed (${phoneUrl}):`, err.message);
+      const error = String(err.message || err).slice(0, 200);
+      logRequest(context, { handledBy: "relay", configPrefix: !!prefixConfigRaw, ok: false, error });
+      recordRelayAttempt(kv, context.waitUntil, { ts: Date.now(), ok: false, error, phoneUrl });
     }
   }
 

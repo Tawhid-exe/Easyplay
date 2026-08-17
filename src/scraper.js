@@ -3,7 +3,6 @@ import { tryVixSrc } from "./vixsrc.js";
 import { try4KHDHub } from "./4khdhub.js";
 import { tryHDHub4u } from "./hdhub4u.js";
 import { tryMoviesDrive } from "./moviesdrive.js";
-import { tryHiAnime } from "./hianime.js";
 import { tryCastle } from "./castle.js";
 import { tryVegaMovies } from "./vegamovies.js";
 import { encryptVidlinkToken } from "./vidlink.js";
@@ -362,7 +361,6 @@ function buildSourceFunctions(imdbId, type, season, episode) {
     { name: "4KHDHub", fn: () => try4KHDHub(imdbId, type, season, episode) },
     { name: "HDHub4u", fn: () => tryHDHub4u(imdbId, type, season, episode) },
     { name: "MoviesDrive", fn: () => tryMoviesDrive(imdbId, type, season, episode) },
-    { name: "HiAnime", fn: () => tryHiAnime(imdbId, type, season, episode) },
     { name: "Castle", fn: () => tryCastle(imdbId, type, season, episode) },
     { name: "VegaMovies", fn: () => tryVegaMovies(imdbId, type, season, episode) },
   ];

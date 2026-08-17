@@ -51,6 +51,7 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
     sources that block Cloudflare work too. One tap on the home-screen widget
     starts it and tells this page where to relay:
   </p>
+  <div id="phoneStatus" style="font-size:13px;padding:10px 12px;border-radius:6px;margin-bottom:12px;background:#1f1f1f;color:#999">Phone engine: checking…</div>
   <div class="url-row" style="flex-direction:column;align-items:stretch;gap:10px">
     <button class="btn btn-primary" id="cmdBtn" type="button">Copy Termux command</button>
     <a class="btn btn-secondary" id="pcBtn" href="easyplay-pc.bat" download>Download PC setup (.bat)</a>
@@ -149,6 +150,30 @@ code{background:#0f0f1e;padding:8px 12px;border-radius:6px;font-size:13px;word-b
   order.forEach(function(b){ b.parentNode.appendChild(b); });
 
   var savedMsg = document.getElementById("saved-msg");
+
+  function pollPhoneStatus(){
+    fetch(window.location.origin + "/api/status").then(function(r){ return r.json(); }).then(function(d){
+      var el = document.getElementById("phoneStatus");
+      if (!el) return;
+      if (d && d.phoneUrl){
+        el.textContent = "Phone engine: ONLINE — " + d.phoneUrl;
+        el.style.color = "#4ade80";
+        el.style.background = "#10281a";
+      } else {
+        el.textContent = "Phone engine: offline — cloud-only (Vidlink + Castle)";
+        el.style.color = "#f87171";
+        el.style.background = "#2a1616";
+      }
+    }).catch(function(){
+      var el = document.getElementById("phoneStatus");
+      if (!el) return;
+      el.textContent = "Phone engine: unknown (status endpoint unreachable)";
+      el.style.color = "#888";
+      el.style.background = "#1f1f1f";
+    });
+  }
+  pollPhoneStatus();
+  setInterval(pollPhoneStatus, 30000);
 
   QUALITIES.forEach(function(q){
     var label = document.createElement("label");

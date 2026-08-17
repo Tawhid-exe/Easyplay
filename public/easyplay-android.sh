@@ -1,43 +1,25 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# ============================================================
-#  Easyplay (local) - toggle server for Android (Termux)
+# Easyplay (local) - toggle server for Android (Termux)
 #
-#  Run this script to START the server, run it again to STOP.
-#  First run auto-installs nodejs + git, downloads the repo once
-#  and installs a home-screen widget (Termux:Widget) so you can
-#  toggle the server with one tap.
+# Self-bootstrapping installer: installs packages, downloads the repo once,
+# installs the self-updating widget, then starts the engine + tunnel.
+# After that, just tap the home-screen "start-server.sh" widget.
 #
-#  One-time install (paste in Termux):
+# One-time install (paste in Termux):
 #    curl -sL https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/public/easyplay-android.sh | bash
-#
-#  After that, just tap the "Easyplay" home-screen widget.
-# ============================================================
+set -e
 
-SCRIPT_URL="https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/public/easyplay-android.sh"
-REGISTER_URL="https://easyplay-9id.pages.dev/api/register"
-
+WIDGET_URL="https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/start-server.sh"
 APP_DIR="$HOME/Easyplay"
-PID_FILE="$HOME/.easyplay.pid"
-TUNNEL_PID_FILE="$HOME/.easyplay-tunnel.pid"
-LOG_FILE="$HOME/.easyplay.log"
-LOG_TUNNEL="$HOME/.easyplay-tunnel.log"
+SHORTCUTS="$HOME/.shortcuts"
 
-# ---- Keep the home-screen widget up to date -----------------
-if [ -d "$HOME/.shortcuts" ] && [ "$0" != "$HOME/.shortcuts/Easyplay" ]; then
-  if [ -f "$0" ]; then
-    cp "$0" "$HOME/.shortcuts/Easyplay"
-  else
-    curl -sL "$SCRIPT_URL" -o "$HOME/.shortcuts/Easyplay"
-  fi
-  chmod +x "$HOME/.shortcuts/Easyplay" 2>/dev/null
-  echo "==> Home-screen widget 'Easyplay' updated (Termux:Widget)."
-fi
+echo "==> Installing packages (nodejs, git, curl, cloudflared)..."
+command -v node       >/dev/null 2>&1 || pkg install -y nodejs-lts
+command -v git        >/dev/null 2>&1 || pkg install -y git
+command -v curl       >/dev/null 2>&1 || pkg install -y curl
+command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
 
-# ---- First-run bootstrap (downloads repo once) --------------
 if [ ! -d "$APP_DIR" ]; then
-  echo "==> First run: installing packages (nodejs, git)..."
-  command -v node >/dev/null 2>&1 || pkg install -y nodejs-lts
-  command -v git  >/dev/null 2>&1 || pkg install -y git
   echo "==> Downloading Easyplay (one time)..."
   git clone --depth 1 https://github.com/Tawhid-exe/Easyplay.git "$APP_DIR" || {
     echo "[ERROR] git clone failed. Check your connection."; exit 1;
@@ -48,70 +30,16 @@ else
   cd "$APP_DIR" || exit 1
 fi
 
-# ---- Toggle: stop if running -------------------------------
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  kill "$(cat "$PID_FILE")" 2>/dev/null
-  TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
-  [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null
-  pkill -f "node server.mjs" 2>/dev/null
-  pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
-  sleep 1
-  rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
-  # Tell the relay we're offline so it falls back to CF-safe sources.
-  curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
-  echo "[Easyplay] server + tunnel stopped (relay will fall back to cloud)."
-  exit 0
+echo "==> Installing the self-updating widget..."
+mkdir -p "$SHORTCUTS"
+if ! curl -fsSL "$WIDGET_URL" -o "$SHORTCUTS/start-server.sh" 2>/dev/null && [ -f "$APP_DIR/start-server.sh" ]; then
+  cp "$APP_DIR/start-server.sh" "$SHORTCUTS/start-server.sh"
 fi
-rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
+chmod +x "$SHORTCUTS/start-server.sh" 2>/dev/null || true
+cp "$SHORTCUTS/start-server.sh" "$SHORTCUTS/Easyplay" 2>/dev/null || true
+chmod +x "$SHORTCUTS/Easyplay" 2>/dev/null || true
 
-# ---- Start --------------------------------------------------
-export ADDON_NAME="Easyplay"
-termux-wake-lock 2>/dev/null
-command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
-pkill -f "node server.mjs" 2>/dev/null
-pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
-sleep 1
-nohup node server.mjs > "$LOG_FILE" 2>&1 &
-NODE_PID=$!
-echo $NODE_PID > "$PID_FILE"
-sleep 2
-if ! kill -0 "$NODE_PID" 2>/dev/null; then
-  echo "[Easyplay] engine failed to start - check:  cat ~/.easyplay.log"
-  rm -f "$PID_FILE"
-  exit 1
-fi
-nohup cloudflared tunnel --url http://localhost:7000 > "$LOG_TUNNEL" 2>&1 &
-echo $! > "$TUNNEL_PID_FILE"
-URL=""
-for i in $(seq 1 30); do
-  [ -f "$PID_FILE" ] || exit 0
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_TUNNEL" 2>/dev/null | head -n1)
-  [ -n "$URL" ] && break
-  sleep 1
-done
-# Publish the current tunnel URL so the stable pages.dev addon can reach us.
-curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=$URL" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
-echo "[Easyplay] server + tunnel started."
-echo "  INSTALL ONCE (any device):  https://easyplay-9id.pages.dev/manifest.json"
-if [ -n "$URL" ]; then
-  echo "  Phone engine online at:     $URL"
-else
-  echo "  Tunnel URL not ready - check:  cat ~/.easyplay-tunnel.log"
-fi
-echo "  Run this script again (or tap the widget) to stop."
-
-# Keep this session alive while the server is on so Android does not
-# reap node when the script exits (this is what keeps it serving).
-# The loop ends when the script/widget is run again (stop branch removes
-# the PID file) or when node stops on its own (idle auto-stop).
-while [ -f "$PID_FILE" ] && kill -0 "$NODE_PID" 2>/dev/null; do
-  sleep 5
-done
-echo "[Easyplay] server ended - run this again (or tap the widget) to start."
-TUNNEL_PID=$(cat "$TUNNEL_PID_FILE" 2>/dev/null)
-[ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null
-pkill -f "cloudflared tunnel --url http://localhost:7000" 2>/dev/null
-pkill -f "node server.mjs" 2>/dev/null
-rm -f "$PID_FILE" "$TUNNEL_PID_FILE"
-curl -s -G -X POST "$REGISTER_URL" --data-urlencode "url=" --data-urlencode "token=${REGISTER_TOKEN:-}" >/dev/null 2>&1 || true
-exit 0
+echo "==> Widget 'start-server.sh' installed (Termux:Widget)."
+echo "    It self-updates on every tap. Starting now..."
+echo ""
+exec bash "$SHORTCUTS/start-server.sh"
