@@ -1,101 +1,142 @@
-# Custom Scraper — Stremio Addon (Cloudflare Pages)
+# Easyplay — Stremio Multi-Source Scraper Addon
 
-A self-hosted Stremio addon that scrapes a website you configure and returns
-playable streams. Runs entirely on Cloudflare Pages Functions (edge runtime,
-free tier) — no server to manage.
+A self-hosted Stremio addon that aggregates streams from 8+ sources. Runs as a **hybrid architecture**: a Cloudflare Pages edge worker acts as the always-on entry point, and an Android phone running Termux can serve as an additional engine with sources that require residential/mobile IPs.
 
-## 1. Set the website to scrape
+## Architecture
 
-Open `src/config.js` and paste the target site's base URL:
-
-```js
-export const SCRAPE_URL = "https://example.com";
-export const SEARCH_PATH_PATTERN = "/search/{query}";
+```
+Stremio Client
+      │
+      ▼
+Cloudflare Pages (easyplay-9id.pages.dev)
+      │
+      ├── Phone online?  ──►  Relay to phone tunnel  ──►  ALL sources
+      │
+      └── Phone offline? ──►  Cloud-only fallback    ──►  Vidlink + Castle + MovieBox
 ```
 
-`{query}` gets replaced with the URL-encoded movie/show title Stremio is
-asking about (looked up automatically via Cinemeta from the IMDb id).
+- **Cloudflare Pages Functions** handle routing, manifest, and relay logic
+- **Phone (Termux)** runs `server.mjs` with all 8 sources locally, exposed via cloudflared tunnel
+- **KV store** (`EASYPLAY_KV`) holds the phone's tunnel URL; the phone re-registers periodically
+- When the phone is offline, the addon falls back to sources that work from datacenter IPs
 
-## 2. Adjust the scraper for the site's actual HTML
+## Sources
 
-Open `src/scraper.js`. Out of the box it does the simplest possible thing:
-fetch the search results page and pull out every `magnet:` link it finds.
-That works immediately if the target site lists magnet links right on the
-search/results page.
+| Source | Type | Requires Phone | Notes |
+|--------|------|:-:|-------|
+| **Vidlink** | HLS embed | No | Always available from CF edge |
+| **Castle** | AES-encrypted API | No | Works from datacenter IPs |
+| **MovieBox** | HMAC-MD5 signed mobile API | No | Falls back to H5 API |
+| **VixSrc** | TMDB → player scrape | Yes | |
+| **4KHDHub** | Link shortener + HLS | Yes | Lazy-loaded by default |
+| **HDHub4u** | WordPress scraper | Yes | Domain rotation via community JSON |
+| **MoviesDrive** | WordPress scraper | Yes | Domain rotation via community JSON |
+| **VegaMovies** | WordPress scraper | Yes | Bollywood/Hollywood + series |
 
-If instead the site:
-- links each result to a separate details page → use **Option A** in the
-  file (commented out) — fetch each details page, then extract the magnet
-  from there.
-- gives direct video/stream URLs instead of torrents → use **Option B**
-  (commented out) — return `{ url: ... }` streams instead of `infoHash`.
+## Quick Install (Phone)
 
-To find the right pattern: open the site's search results page in a
-browser, view source (Ctrl+U), and look for how magnet links or details
-links appear in the raw HTML, then adjust the regex in `scraper.js`
-accordingly.
-
-## 3. Test locally (optional, requires Node + npm)
+Paste this one-liner in Termux:
 
 ```bash
+curl -sL https://raw.githubusercontent.com/Tawhid-exe/Easyplay/main/public/easyplay-android.sh | bash
+```
+
+This installs Node.js, git, cloudflared, clones the repo, and sets up a home-screen widget. After setup:
+
+- **Tap the widget** to start/stop the server + tunnel
+- Install the addon once in Stremio: `https://easyplay-9id.pages.dev/manifest.json`
+- That URL never changes — no re-install needed
+
+### Manual Setup (PC)
+
+```bash
+git clone https://github.com/Tawhid-exe/Easyplay.git
+cd Easyplay
 npm install
-npm run dev
+npm start
 ```
 
-This starts a local server (usually `http://localhost:8788`). Visit
-`http://localhost:8788/manifest.json` to confirm it returns JSON.
+The local server runs on `http://localhost:7000`.
 
-## 4. Push to GitHub
+## Deploy to Cloudflare Pages
 
-```bash
-git init
-git add .
-git commit -m "Initial addon"
-git remote add origin <your-empty-github-repo-url>
-git push -u origin main
-```
-
-## 5. Deploy on Cloudflare Pages
-
-1. Go to the Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
-2. Select the repo you just pushed.
-3. Build settings:
+1. Connect the GitHub repo to Cloudflare Pages (Workers & Pages > Create > Pages)
+2. Build settings:
    - Framework preset: **None**
    - Build command: *(leave empty)*
    - Build output directory: `public`
-4. Click **Save and Deploy**.
+3. Bind an `EASYPLAY_KV` KV namespace in Settings > Functions > KV bindings
+4. Set `TMDB_API_KEY` in Settings > Environment Variables (optional, has a default)
 
-Cloudflare auto-detects the `functions/` folder and deploys it alongside
-the static `public/` folder — no extra config needed.
-
-Your addon will be live at:
-```
-https://<your-project-name>.pages.dev
+Deploy manually:
+```bash
+npm run deploy
 ```
 
-## 6. Install in Stremio
+## Configuration
 
-Open Stremio → click the search icon in the addons section → paste:
+Environment variables (set in Cloudflare dashboard or `.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TMDB_API_KEY` | *(built-in)* | TMDB API key for title lookups |
+| `ADDON_NAME` | `Easyplay` | Display name in Stremio |
+| `HDHUB4U_ENABLED` | `true` | Enable/disable HDHub4u source |
+| `MOVIESDRIVE_ENABLED` | `true` | Enable/disable MoviesDrive source |
+| `VEGAMOVIES_ENABLED` | `true` | Enable/disable VegaMovies source |
+| `HIANIME_ENABLED` | `true` | Enable/disable HiAnime source |
+| `CASTLE_ENABLED` | `true` | Enable/disable Castle source |
+| `MOVIEBOX_ENABLED` | `true` | Enable/disable MovieBox source |
+| `KHDHUB_LAZY_LOAD` | `true` | Lazy-load 4KHDHub (resolve on play) |
+| `HIANIME_API_BASE` | *(built-in)* | HiAnime API endpoint |
+
+## Project Structure
+
 ```
-https://<your-project-name>.pages.dev/manifest.json
+├── functions/              # Cloudflare Pages Functions (edge routes)
+│   ├── stream/[type]/[id].js   # Main stream handler (relay or fallback)
+│   ├── api/register.js         # Phone registration endpoint
+│   ├── api/status.js           # Status/health check
+│   └── manifest.json.js        # Stremio manifest
+├── src/
+│   ├── addon.js            # Stremio addon builder + stream handler
+│   ├── scraper.js          # Source orchestrator (parallel scraping, timeout)
+│   ├── cfStream.js         # Cloudflare stream handler (relay + fallback)
+│   ├── config.js           # All configuration constants
+│   ├── moviebox.js         # MovieBox — signed mobile API + H5 fallback
+│   ├── castle.js           # Castle — AES-CBC encrypted API
+│   ├── vidlink.js          # Vidlink — HLS embed with token encryption
+│   ├── vixsrc.js           # VixSrc — TMDB-based player
+│   ├── 4khdhub.js          # 4KHDHub — link shortener + HLS
+│   ├── hdhub4u.js          # HDHub4u — WordPress scraper
+│   ├── moviesdrive.js      # MoviesDrive — WordPress scraper
+│   ├── vegamovies.js       # VegaMovies — WordPress scraper
+│   ├── hianime.js          # HiAnime — third-party API
+│   ├── utils.js            # Shared fetch helpers, TMDB lookup
+│   ├── cors.js             # CORS headers
+│   └── cookies.js          # Cookie handling
+├── public/                 # Static files (deployed to Pages)
+│   ├── index.html          # Landing page with Install button
+│   ├── easyplay-android.sh # Self-bootstrapping Termux installer
+│   ├── setup-termux.sh     # Alternative Termux setup
+│   └── easyplay-pc.bat     # Windows quick-start
+├── server.mjs              # Local Express server (phone/PC)
+├── start-server.sh         # Termux widget script (toggle start/stop)
+├── wrangler.toml           # Cloudflare Pages + KV config
+└── package.json
 ```
-Click **Install**. Streams from your scraper will now show up whenever
-you open a movie/show that matches something on the target site.
 
-Or visit `https://<your-project-name>.pages.dev` in a browser — it shows
-an **Install in Stremio** button that does this for you via a `stremio://` link.
+## How It Works
 
-## Notes
+1. Stremio requests streams for an IMDb ID (e.g., `tt1234567`)
+2. The addon resolves the IMDb ID to a TMDB title via the TMDB API
+3. All enabled sources are queried in parallel with a 12-second batch timeout
+4. Results are deduplicated by URL, tagged with source name, and returned
+5. Quality filtering is configurable via Stremio's addon config UI
 
-- Every response must return HTTP 200 with valid JSON, or Stremio will
-  silently stop calling this addon — the code already handles errors by
-  returning an empty stream list rather than throwing.
-- Cloudflare's edge IPs are shared/rotating, which can help vs. the
-  datacenter-IP blocking some sites apply to fixed VPS IPs — but a site
-  that's aggressively protected (Cloudflare-behind-Cloudflare, heavy JS
-  challenges) may still block it. If that happens you'd need a proxy or
-  a FlareSolverr-style solver in front of the fetch call.
-- This only supplies the `stream` resource (playable links for content
-  Stremio already knows about via Cinemeta). It doesn't add its own
-  browsable catalog — that would need the `catalog` resource added to
-  the manifest and a matching route.
+## Troubleshooting
+
+- **Only Vidlink + Castle showing**: The phone is offline or the relay failed. Tap the widget to restart.
+- **No streams at all**: Check `https://easyplay-9id.pages.dev/api/status` for relay status.
+- **Phone logs**: `cat ~/.easyplay.log` (server) and `cat ~/.easyplay-relay.log` (tunnel/relay)
+- **Restart phone server**: Tap the Termux widget twice (once to stop, once to start)
